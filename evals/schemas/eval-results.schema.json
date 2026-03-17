@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "eval-results",
+  "description": "Schema for eval-results.json — Claude's LLM evaluation output consumed by apply_eval_results.py",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["company", "careers_url", "scores", "total_score", "path", "path_name", "fit_summary", "hard_pass"],
+    "properties": {
+      "company": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Company name as it appears in target-companies.csv"
+      },
+      "careers_url": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Careers page URL — used as the merge key with target-companies.csv"
+      },
+      "scores": {
+        "type": "object",
+        "description": "Component scores (domain, ai, comp, role, growth, culture)",
+        "additionalProperties": { "type": "number", "minimum": 0, "maximum": 100 }
+      },
+      "total_score": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "description": "Overall LLM score (0-100)"
+      },
+      "path": {
+        "type": "string",
+        "description": "Career path code (e.g., 'pm', 'se', 'sa')"
+      },
+      "path_name": {
+        "type": "string",
+        "description": "Human-readable path name (e.g., 'Product Manager', 'Solutions Architect')"
+      },
+      "fit_summary": {
+        "type": "string",
+        "description": "1-2 sentence rationale for the score"
+      },
+      "red_flags": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": [],
+        "description": "Concerns about fit or company"
+      },
+      "hard_pass": {
+        "type": "boolean",
+        "default": false,
+        "description": "If true, company is moved to raw-discovery (excluded)"
+      },
+      "hard_pass_reason": {
+        "type": "string",
+        "default": "",
+        "description": "Reason for hard pass, required when hard_pass is true"
+      },
+      "cv_template": {
+        "type": "string",
+        "default": "",
+        "description": "Suggested CV template for this company"
+      }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+# Career Manager Configuration
+# Copy this file to config.yaml and fill in your values.
+
+paths:
+  # Base directory for CV/resume files
+  cv_base: /path/to/your/CV/directory
+
+integrations:
+  # Set to false to skip Todoist sync (pipeline continues without it)
+  todoist_enabled: true
+  # Set to false to skip email sends
+  gmail_enabled: true
+  # Set to false to skip JobSpy scraping (uses cached data instead)
+  jobspy_enabled: true
+  # Set to true to use Tavily for direct role posting links (free tier: 1000 credits/month)
+  # Sign up at https://tavily.com to get an API key
+  tavily_enabled: false
+
+email:
+  from: your-email@gmail.com
+  to: your-email@gmail.com
+  bcc: ""  # Optional BCC recipient (leave empty to disable)
+
+credentials:
+  # Todoist token file path (relative to project root)
+  todoist_token: .credentials/todoist-token.json
+  # Gmail OAuth token path (relative to project root)
+  gmail_token: .credentials/gmail-token.pickle
+  # Tavily API key file — JSON with {"api_key": "tvly-..."}
+  tavily_token: .credentials/tavily-token.json
