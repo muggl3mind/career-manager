@@ -245,12 +245,12 @@ def phase3() -> dict:
     }
 
     # Score any unscored companies first
-    print("\n[1/2] Scoring unscored companies...")
+    print("\n[1/3] Scoring unscored companies...")
     rc = run_script('../core/score_companies.py', [])
     if rc != 0:
         print("  [score] WARN: score_companies.py returned non-zero, continuing anyway")
 
-    print("\n[2/2] Generating action list...")
+    print("\n[2/3] Generating action list...")
     action_list_path = DATA / 'action-list.csv'
 
     try:
@@ -260,11 +260,21 @@ def phase3() -> dict:
         results['action_list'] = 'error'
         results['errors'].append(f'Action list generation failed: {e}')
 
+    # Generate dashboard
+    print("\n[3/3] Generating dashboard...")
+    dashboard_rc = run_script('generate_dashboard.py', [])
+    if dashboard_rc != 0:
+        results['errors'].append('Dashboard generation failed')
+    else:
+        results['dashboard'] = str(DATA / 'dashboard.html')
+
     # Summary
     print("\n" + "=" * 60)
     print("  PHASE 3 COMPLETE")
     print("=" * 60)
     print(f"  Action list:   {results['action_list']}")
+    if results.get('dashboard'):
+        print(f"  Dashboard:     file://{results['dashboard']}")
     if results['errors']:
         print(f"\n  ISSUES: {'; '.join(results['errors'])}")
     else:
