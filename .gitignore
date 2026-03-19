@@ -23,6 +23,8 @@ job-search/data/prospecting-context.json
 job-search/data/prospecting-results.json
 job-search/data/pipeline-phase1-summary.json
 job-search/data/search-config.json
+job-search/data/dashboard.html
+job-search/data/dashboard-full.html
 job-tracker/data/applications.csv
 company-research/dossiers/
 !company-research/dossiers/.gitkeep
