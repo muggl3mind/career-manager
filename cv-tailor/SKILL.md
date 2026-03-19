@@ -29,27 +29,54 @@ Key defaults:
 
 ## Workflow
 
-### Phase 1 — Prep (Python)
-```
-python3 scripts/run_pipeline.py --phase prep --company "Acme" --role "AI PM" --jd-path /tmp/jd.txt
+### Phase 1 -- Prep (Python)
+
+Get the job description from the user. If they provide a URL, fetch it via WebFetch. If they paste text, use it directly. Write the JD text to a temp file yourself. The user should never create temp files.
+
+```bash
+# Write JD to temp file (you do this, not the user)
+# Then run prep:
+uv run cv-tailor/scripts/run_pipeline.py --phase prep --company "Acme" --role "AI PM" --jd-path /path/you/created.txt
 ```
 Selects base CV, reads it, writes `data/pending-analysis.json`.
 
-### Phase 2 — Analysis (Claude)
+### Phase 2 -- Analysis (Claude)
+
+Report progress: "Reading JD... Analyzing against your resume..."
+
 Read `data/pending-analysis.json`. It contains:
-- `base_cv_paragraphs` — exact strings from the base resume
-- `jd_text` — job description
-- `instructions` — what to do
-- `output_schema` — required output format
+- `base_cv_paragraphs` -- exact strings from the base resume
+- `jd_text` -- job description
+- `instructions` -- what to do
+- `output_schema` -- required output format
 
 Produce targeted edits where `old` is an exact match to a paragraph in `base_cv_paragraphs`.
 Write results to `data/analysis.json`.
 
-### Phase 3 — Apply (Python)
-```
-python3 scripts/run_pipeline.py --phase apply --company "Acme" --role "AI PM"
+Report: "Planning X bullet edits, summary rewrite, Y-paragraph cover letter."
+
+### Preview Before Apply
+
+Before running the apply phase, present a summary to the user:
+
+"I'll edit X bullets, rewrite your summary, and write a Y-paragraph cover letter. Here's what changes:
+- [Brief summary of each bullet edit]
+- [Summary change]
+- [Cover letter approach]
+
+Apply?"
+
+Wait for confirmation before proceeding.
+
+**Page count pre-check:** Estimate whether the edits will push the resume past 2 pages. If the number of added/expanded bullets is high, flag it: "These edits might push past 2 pages. Want me to trim before applying?" Suggest specific cuts if needed.
+
+### Phase 3 -- Apply (Python)
+```bash
+uv run cv-tailor/scripts/run_pipeline.py --phase apply --company "Acme" --role "AI PM"
 ```
 Validates schema, patches resume, generates cover letter + redline + QC + manifest.
+
+**Next step:** After producing artifacts, suggest: "Want me to add this to your tracker?"
 
 ## Scripts
 
@@ -72,9 +99,11 @@ Validates schema, patches resume, generates cover letter + redline + QC + manife
 - Word redline/change-log `.docx`
 - Chat summary: what changed and why
 
-## Integration
+## After Completion
 
-- After tailoring materials for a role, update the application tracker via the sibling `job-tracker` skill (e.g., add application or update status to "applied").
+After producing artifacts:
+1. Suggest adding to tracker: "Want me to add this to your tracker?"
+2. If user confirms, hand off to job-tracker skill with company + role.
 
 ## Writing Quality Rules
 
