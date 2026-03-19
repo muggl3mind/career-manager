@@ -1,0 +1,1 @@
+Read company-research/SKILL.md. Research the company: $ARGUMENTS

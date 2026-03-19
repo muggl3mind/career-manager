@@ -1,0 +1,1 @@
+Read onboarding/SKILL.md and follow the onboarding flow.
