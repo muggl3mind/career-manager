@@ -4,6 +4,15 @@ An AI-assisted career management system built as a set of Claude Code skills. Or
 
 > **Note:** This is a personal productivity tool shared for inspiration and adaptation, not a production service.
 
+## Demo
+
+> **Watch:** Short walkthrough of the full pipeline from onboarding to dashboard.
+
+<!-- TODO: Replace with actual video embed/link after recording -->
+<!-- ![Demo Video](assets/demo/demo-thumbnail.png) -->
+
+[Video coming soon]
+
 ## Getting Started
 
 1. Install [Claude Code](https://claude.ai/code)
