@@ -82,7 +82,6 @@ Validates schema, patches resume, generates cover letter + redline + QC + manife
 - **Never sound like AI.** No "leveraging", "spearheading", "passionate about", "thrilled to". Write like a human.
 - **Resume must stay within 2 pages.** If edits push it to page 3, cut or condense. Check page count before finalizing.
 - **Cover letter must stay within 1 page.** 3-4 paragraphs max.
-- **Use the voice guide.** Read `references/voice-guide.md` before writing any material. Match the user's actual tone.
 
 ## Error Handling
 

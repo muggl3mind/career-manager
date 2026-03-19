@@ -136,7 +136,6 @@ def main():
     for f, label in [
         ("job-search/references/criteria.md", "criteria.md"),
         ("job-search/references/background-context.md", "background-context.md"),
-        ("references/voice-guide.md", "voice-guide.md"),
     ]:
         path = PROJECT_ROOT / f
         def check_file(p=path):

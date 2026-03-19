@@ -52,7 +52,6 @@ Once Claude Code is running, personalize the pipeline:
    - `config.yaml` — paths, integration settings, email addresses
    - `job-search/references/criteria.md` — your career paths and scoring rubric
    - `job-search/references/background-context.md` — your professional summary
-   - `references/voice-guide.md` — your communication style
    - `job-search/data/search-config.json` — job board search queries and filters
 4. Run the smoke test to verify everything is set up correctly:
 
@@ -177,7 +176,6 @@ See `examples/` for anonymized sample CSVs that demonstrate the data schema.
 ## Customization
 
 - **Career paths**: Edit `job-search/references/criteria.md` to define your own target industries and scoring rubric
-- **Voice**: Edit `references/voice-guide.md` to match your personal brand
 - **Scoring weights**: Adjust the 10-dimension rubric in `job-search/references/criteria.md`
 - **Email templates**: Customize templates in `job-search/templates/`
 

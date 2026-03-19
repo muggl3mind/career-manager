@@ -75,32 +75,6 @@ Seeking ML infrastructure or MLOps roles where the primary focus is enabling
 ML teams at scale rather than building dashboards or ad-hoc analysis.
 ```
 
-## Generated: voice-guide.md
-
-```markdown
-# Voice & Tone Guide — Alex Chen
-
-## Communication Style
-- Direct and technical; prefers specifics over buzzwords
-- Leads with impact metrics ("reduced latency 40x" not "improved performance")
-- Conversational but professional; avoids overly formal language
-
-## Cover Letter Tone
-- Opens with a concrete technical accomplishment relevant to the role
-- Connects past data engineering work to ML infrastructure ambitions
-- Closes with genuine enthusiasm, not generic interest
-
-## Phrases That Sound Like Alex
-- "I've spent the last two years making ML teams faster by..."
-- "What drew me to this role is the focus on..."
-- "On my current team, I own the pipeline from ingestion through serving..."
-
-## Phrases to Avoid
-- "Passionate rockstar engineer" — too cliché
-- "Seeking new challenges" — too vague
-- "Dear Hiring Manager" — prefers finding actual names
-```
-
 ## Generated: search-config.json
 
 ```json
@@ -163,6 +137,5 @@ preferences:
 files:
   criteria: criteria.md
   background: background-context.md
-  voice_guide: voice-guide.md
   search_config: search-config.json
 ```
