@@ -6,7 +6,6 @@ Used by:
   - discovery_pipeline.py (after writing CSV)
   - apply_eval_results.py (after merging LLM evals)
   - web_prospecting.py (after merging prospecting results)
-  - score_companies.py (after scoring)
 
 Direct usage:
   python3 scripts/core/target_companies_sync.py csv-to-xlsx
@@ -33,32 +32,23 @@ COLUMN_WIDTHS = {
     'company': 24,
     'website': 24,
     'careers_url': 42,
+    'role_url': 28,
     'industry': 28,
     'size': 12,
     'stage': 16,
     'recent_funding': 30,
     'tech_signals': 34,
     'open_positions': 30,
-    'key_contacts': 20,
-    'fit_score': 12,
-    'fit_rationale': 50,
     'last_checked': 14,
     'notes': 50,
-    'numeric_score': 14,
-    'score_breakdown': 30,
-    'relevance_reason': 30,
     'role_family': 22,
     'source': 18,
-    'source_tier': 18,
     'location_detected': 20,
     'validation_status': 16,
     'exclusion_reason': 24,
     'llm_score': 12,
-    'llm_path': 10,
-    'llm_path_name': 28,
     'llm_rationale': 55,
     'llm_flags': 35,
-    'llm_cv_template': 22,
     'llm_hard_pass': 14,
     'llm_hard_pass_reason': 30,
     'llm_evaluated_at': 22,
