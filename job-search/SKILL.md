@@ -39,22 +39,23 @@ Note: `tracker_commands.py` and `add_to_tracker.py` moved to `../job-tracker/scr
 
 ### Full Pipeline Run (when user says "run job search")
 
-This is a 3-phase workflow. Phase 1 and 2 are Python scripts. Between them, YOU (Claude) do the research work.
+This is a 3-phase workflow. Phase 1 and 2 are Python scripts. Between them, YOU (Claude) do the research work. Run all phases continuously. Do not pause between phases or ask the user to run commands.
 
-**IMPORTANT:** Phase 1 will exit after exporting context files. This is expected — not an error. Continue to the agent work step below.
-
-**Phase 1 — Python exports + discovery:**
+**Phase 1 -- Python exports + discovery:**
 ```
-uv run scripts/ops/run_pipeline.py phase1
-uv run scripts/ops/run_pipeline.py phase1 --skip-jobspy   # faster, skip job board scrape
+uv run job-search/scripts/ops/run_pipeline.py phase1
+uv run job-search/scripts/ops/run_pipeline.py phase1 --skip-jobspy   # faster, skip job board scrape
 ```
-Runs: monitor export → JobSpy discovery → web prospecting export.
-Produces context files for you to process next.
+Runs: monitor export, JobSpy discovery, web prospecting export.
+After phase 1 completes, continue directly to agent work below.
 
-**Agent work (YOU do this) — read context files, do research, AND score:**
-1. Read `data/monitor-context.json` → visit stale companies' careers pages → **score each against criteria.md** → write `data/monitor-results.json`
-2. Read `data/pending-eval.json` (if exists) → evaluate each job against `references/criteria.md` → write `data/eval-results.json`
-3. Read `data/prospecting-context.json` → search for new companies, check named targets → **score each against criteria.md** → write `data/prospecting-results.json`
+**Agent work (YOU do this) -- read context files, do research, AND score:**
+
+**Progress reporting:** After every 5 companies during monitor work, report progress to the user (e.g., "8/18 done, 2 new roles found so far"). During prospecting, report after each career path (e.g., "Path 3/8 (Solutions Architecture) done, 7 companies found so far"). This keeps the user informed during long runs.
+
+1. Read `data/monitor-context.json` -> visit stale companies' careers pages -> **score each against criteria.md** -> write `data/monitor-results.json`
+2. Read `data/pending-eval.json` (if exists) -> evaluate each job against `references/criteria.md` -> write `data/eval-results.json`
+3. Read `data/prospecting-context.json` -> search for new companies, check named targets -> **score each against criteria.md** -> write `data/prospecting-results.json`
 
 **Scoring instructions (for steps 1 and 3):**
 When visiting each company, also evaluate it against your `references/criteria.md` rubric:
@@ -74,23 +75,32 @@ When visiting each company, also evaluate it against your `references/criteria.m
 If Tavily is configured (`tavily_enabled: true` in config.yaml), capture direct links to specific job postings:
 1. After identifying roles on a company's careers page, call Tavily Map on the `careers_url`
 2. Match each role title to a URL from the Tavily results (look for the role title or a slug version in the URL path)
-3. If a match is found, include `role_url` in the result entry — this is the direct link to the job posting
-4. If no match or Tavily unavailable, omit `role_url` — the `careers_url` is the fallback
-5. Never fabricate a role_url — only use URLs that Tavily actually discovered
+3. If a match is found, include `role_url` in the result entry
+4. If no match or Tavily unavailable, omit `role_url`
+5. Never fabricate a role_url
 
-**Phase 2 — Merge all results:**
-```
-uv run scripts/ops/run_pipeline.py phase2
-uv run scripts/ops/run_pipeline.py phase2 --dry-run
-```
-Runs whichever merges have result files: monitor merge → eval merge → prospecting merge.
-Updates `target-companies.csv` with everything.
+**Phase 2 -- Preview and merge:**
 
-**Phase 3 — Generate action list:**
+Before merging, run the dry-run first:
 ```
-uv run scripts/ops/run_pipeline.py phase3
+uv run job-search/scripts/ops/run_pipeline.py phase2 --dry-run
+```
+Present the summary to the user: "About to merge: X new companies, Y updated scores. Proceed?"
+
+On confirmation, run the merge:
+```
+uv run job-search/scripts/ops/run_pipeline.py phase2
+```
+
+**Phase 3 -- Generate action list (automatic):**
+
+Run phase 3 immediately after phase 2 completes. Do not ask the user to run it separately.
+```
+uv run job-search/scripts/ops/run_pipeline.py phase3
 ```
 Overwrites `data/action-list.csv` from updated target-companies.csv. Always use this fixed filename (no date suffix).
+
+**Next step:** After phase 3 completes, read `data/action-list.csv`, identify the top 3 companies, and suggest: "Top 3 are [names]. Want me to research them?"
 
 ---
 
