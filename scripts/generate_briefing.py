@@ -6,7 +6,7 @@ Usage:
     python3 scripts/generate_briefing.py          # JSON to stdout
     python3 scripts/generate_briefing.py --pretty  # human-readable
 
-Reads target-companies.csv, applications.csv, and seen-companies.json.
+Reads target-companies.csv, applications.csv, and run-log.jsonl.
 Handles missing files gracefully (returns first_run indicator).
 """
 
