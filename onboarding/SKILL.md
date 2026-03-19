@@ -1,11 +1,11 @@
 ---
 name: onboarding
-description: "Set up your personalized career-manager pipeline. Interviews you about your background, target roles, and preferences, then generates all config files so the pipeline is ready to run. Use when first setting up the pipeline or when your career goals change."
+description: "Set up your personalized career-manager pipeline. Reads your resume, asks 3 targeted questions, then generates all config files so the pipeline is ready to run. Use when first setting up the pipeline or when your career goals change."
 ---
 
 # Onboarding
 
-Personalize the career-manager pipeline for a new user through a guided interview.
+Personalize the career-manager pipeline for a new user through a focused setup.
 
 ## When to Use
 
@@ -27,28 +27,19 @@ Check `cv-tailor/data/CV/Master CV/` for a `.docx` or `.pdf` file.
 
 Present a summary: "Here's what I gathered from your resume: [summary]. Anything to correct or add?"
 
-**If not found:** Skip to the full interview (Step 2 will ask background questions).
+**If not found:** Tell the user: "Drop your resume (.docx or .pdf) into `cv-tailor/data/CV/Master CV/` and re-run onboarding. The resume is needed to generate accurate search queries and scoring criteria."
 
-### Step 2: Interview
+### Step 2: Three Questions
 
-Ask questions **one at a time**. Adapt based on answers — skip redundant questions, probe deeper on thin answers.
+Ask these three questions **one at a time, sequentially**:
 
-**If no resume was found, start with these:**
-1. "Walk me through your career — roles, industries, years. Hit the highlights."
-2. "What are your strongest technical skills?"
-3. "What's your education background? Any certifications?"
-4. "What's your non-obvious angle? The thing that makes you different from other candidates with similar titles."
-5. "Any projects or side work that shows what you can do beyond your job titles?"
-
-**Then ask everyone (with or without resume):**
-6. "What roles are you targeting?"
-7. "What's your compensation target? (range is fine)"
-8. "Any deal-breakers? Remote/hybrid/onsite, company size, geography, industries to avoid?"
-9. "How do you want to come across in outreach and applications? Describe your vibe in a few words, or point me to a writing sample you like."
+1. "What roles are you targeting? Be specific about seniority (Associate, Manager, Director, VP) and industry. **Tip:** 'Senior Product Manager, fintech/accounting SaaS' will get you much better results than just 'Product Manager.'"
+2. "What's your target salary range?"
+3. "What's your willingness to travel? (e.g., fully remote, hybrid, open to relocation, X% travel)"
 
 ### Step 3: Generate Files
 
-After the interview, generate all files. Warn before overwriting any existing files.
+After the questions, generate all files. Warn before overwriting any existing files.
 
 **IMPORTANT:** Before writing each file, you MUST read the existing file first (even if it's a template placeholder). Claude Code's Write tool requires reading before overwriting. If the file doesn't exist yet, create the parent directory with Bash (`mkdir -p`) first, then use Write.
 
@@ -63,7 +54,7 @@ Generate with this structure:
 [2-3 paragraphs: what makes this person uniquely valuable, derived from their background + non-obvious angle]
 
 ## Target Roles
-[Role categories with descriptions, from "what roles are you targeting?"]
+[Role categories with descriptions, from question 1]
 
 ## Target Company Types
 [3-8 career paths based on user's breadth. Each path has:]
@@ -72,7 +63,7 @@ Generate with this structure:
 - **Example Companies:** [Named targets]
 - **Role Types:** [Specific roles that fit]
 - **Why You Fit:** [Connection to user's background]
-- **Compensation Notes:** [Range based on user's target]
+- **Compensation Notes:** [Range based on user's target from question 2]
 
 ## Evaluation Framework
 [10 personalized yes/no scoring dimensions, generated fresh]
@@ -127,39 +118,12 @@ Generate with this structure:
 
 ## Positioning Angles
 [3-6 angles: the narratives that make this person compelling]
+
+## Travel & Location Preferences
+[From question 3 — willingness to travel, remote/hybrid/onsite preferences]
 ```
 
-#### File 3: `references/voice-guide.md`
-
-Generate with this structure, derived from how the user communicates during the interview + their "vibe" answer:
-
-```
-## Core Personality Traits
-[3-4 traits with descriptions]
-
-## Communication Style
-[Technical vs. casual, analogies, explanation depth]
-
-## Phrases That Sound Like You
-[Extracted from actual interview answers]
-
-## Anti-Patterns
-[What doesn't sound like this person]
-
-ALWAYS include these anti-patterns:
-- Never use em dashes (—). Use commas, periods, or parentheses instead.
-- Never use filler phrases like "I'm thrilled to", "excited to share", "passionate about"
-- Never write in a way that sounds like AI-generated text
-- Avoid long compound sentences. Keep it conversational.
-
-## Writing Rhythm
-[Sentence structure, formatting preferences]
-
-## The Test
-"Would [name] actually say this out loud to a colleague?"
-```
-
-#### File 4: `job-search/data/search-config.json`
+#### File 3: `job-search/data/search-config.json`
 
 Generate valid JSON matching this schema:
 
@@ -214,19 +178,19 @@ Generate valid JSON matching this schema:
 - One query pack per career path from criteria.md (for JobSpy board scraping)
 - One prospecting path per career path (for web-based company discovery)
 - Each query: concrete search string (e.g., "product manager ai accounting software")
-- Mix company-specific queries (e.g., "Acme Corp ai product manager") with generic ones
+- Mix company-specific queries with generic ones
 - All regex patterns must be valid Python regex. Do NOT use inline flags like `(?i)` — the pipeline adds case-insensitivity automatically
 - `named_targets`: specific companies the user wants to track — derived from career paths in criteria.md
 - `path_check_instructions`: tell Claude what role types to look for when visiting each path's company careers pages
 - `role_patterns`: general role keywords used across all paths for monitoring
 
 **Scoring keywords:** The `scoring` section powers the keyword-based company scorer. Generate weighted keywords (0-10 scale) based on the user's profile:
-- `domain_keywords`: industry terms from their background (e.g., "accounting": 10, "fintech": 6). Higher weight = stronger signal of fit.
-- `ai_keywords`: AI/ML terms relevant to their target roles. Generally applicable but weight based on importance.
+- `domain_keywords`: industry terms from their background. Higher weight = stronger signal of fit.
+- `ai_keywords`: AI/ML terms relevant to their target roles.
 - `role_keywords`: their target job titles with weights.
-- `comp_indicators`: company traits that signal target compensation (funding stages, known high-paying companies, salary thresholds).
-- `growth_indicators`: signals of company growth trajectory (funding rounds, VC names, growth descriptors).
-- `culture_keywords`: grouped keywords for culture fit scoring (remote/innovation/technical signals).
+- `comp_indicators`: company traits that signal target compensation.
+- `growth_indicators`: signals of company growth trajectory.
+- `culture_keywords`: grouped keywords for culture fit scoring.
 
 **Minimum viable output:**
 - 3+ career paths / query packs / prospecting paths
@@ -237,15 +201,14 @@ Generate valid JSON matching this schema:
 - 10+ gold companies
 - 10+ role patterns
 
-#### File 5: `config.yaml`
+#### File 4: `config.yaml`
 
 Ask the user:
 - CV base path (default: `cv-tailor/data/CV/`)
 - Which integrations to enable (default: all disabled for new users):
+  - **JobSpy** — scrapes job boards (Indeed, LinkedIn) for open roles
   - **Todoist** — syncs completed tasks to Todoist for tracking
   - **Gmail** — sends daily digest emails with new job discoveries
-  - **JobSpy** — scrapes job boards (Indeed, LinkedIn) for open roles
-- Email addresses if Gmail is enabled
 
 Use `config.yaml.example` as the template. Use defaults for fields not asked about.
 
