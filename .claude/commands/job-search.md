@@ -1,1 +1,1 @@
-Read job-search/SKILL.md and follow the "Full Pipeline Run" instructions.
+Read SKILL.md (router) for the briefing step, then read job-search/SKILL.md and follow the "Full Pipeline Run" instructions.
