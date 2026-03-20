@@ -39,3 +39,16 @@ Before running workflows, the router calls `scripts/generate_briefing.py` for a 
 uv run python3 scripts/smoke_test.py       # verify setup
 uv run python3 -m pytest evals/tests/ -v   # run test suite
 ```
+
+## Repo Sync
+
+The public repo at `career-manager-public/` is synced from this private repo via `scripts/export_public.py`. Both repos must stay in sync for skill files.
+
+**Before exporting:**
+```bash
+uv run python3 scripts/check_sync.py
+```
+
+If divergence is found, resolve before exporting. The export script has a timestamp guard that skips files where the public version is newer, but always verify with `check_sync.py` first.
+
+**After editing skill files in either repo:** run `check_sync.py --fix` to copy the newer version to the other repo, then commit in both.
