@@ -91,12 +91,12 @@ def sample_search_config(tmp_path):
 def sample_target_csv(tmp_path):
     """A minimal target-companies.csv with companies to score."""
     header = [
-        'rank', 'company', 'website', 'careers_url', 'industry', 'size', 'stage',
-        'recent_funding', 'tech_signals', 'open_positions', 'fit_score',
-        'fit_rationale', 'last_checked', 'notes', 'numeric_score', 'score_breakdown',
-        'role_family', 'source', 'source_tier', 'location_detected',
-        'validation_status', 'exclusion_reason', 'llm_score', 'llm_path',
-        'llm_path_name', 'llm_rationale', 'llm_flags', 'llm_cv_template',
+        'rank', 'company', 'website', 'careers_url', 'role_url',
+        'industry', 'size', 'stage', 'recent_funding',
+        'tech_signals', 'open_positions', 'last_checked',
+        'notes', 'role_family', 'source',
+        'location_detected', 'validation_status', 'exclusion_reason',
+        'llm_score', 'llm_rationale', 'llm_flags',
         'llm_hard_pass', 'llm_hard_pass_reason', 'llm_evaluated_at',
     ]
     rows = [
@@ -106,7 +106,6 @@ def sample_target_csv(tmp_path):
             'tech_signals': 'ai, llm, python',
             'open_positions': 'Product Manager',
             'stage': 'Series C',
-            'fit_rationale': 'Strong healthcare AI platform with remote culture',
             'validation_status': 'pass',
             'source': 'web_prospecting',
         },
@@ -333,8 +332,8 @@ class TestMonitorResultsScoringSchema:
         assert row['llm_score'] == '85', f"Expected llm_score=85, got {row['llm_score']!r}"
         assert row['llm_rationale'] == 'Strong AI focus with accounting domain.', \
             f"Unexpected llm_rationale: {row['llm_rationale']!r}"
-        assert row['llm_path_name'] == 'AI Product', \
-            f"Unexpected llm_path_name: {row['llm_path_name']!r}"
+        assert row['role_family'] == 'AI Product', \
+            f"Unexpected role_family: {row['role_family']!r}"
         assert row['llm_flags'] == 'remote_friendly', \
             f"Unexpected llm_flags: {row['llm_flags']!r}"
         assert row['llm_evaluated_at'], "Expected llm_evaluated_at to be set"
@@ -353,7 +352,7 @@ class TestMonitorResultsScoringSchema:
                 'source': 'web_prospecting',
                 'llm_score': '90',
                 'llm_rationale': 'Previously evaluated.',
-                'llm_path_name': 'Accounting Tech',
+                'role_family': 'Accounting Tech',
                 'llm_flags': 'top_pick',
                 'llm_evaluated_at': '2026-03-01T00:00:00+00:00',
             }
@@ -437,7 +436,6 @@ class TestProspectingResultsScoringSchema:
                 'tech_signals': 'llm, python, data pipeline',
                 'open_positions': 'AI Product Manager',
                 'prospect_status': 'active_role',
-                'fit_rationale': 'Strong accounting automation angle.',
                 'path': 3,
                 'path_name': 'AI-Native Fintech',
                 'notes': 'Fast growing team.',
@@ -483,8 +481,8 @@ class TestProspectingResultsScoringSchema:
         assert row['llm_score'] == '78', f"Expected llm_score=78, got {row['llm_score']!r}"
         assert row['llm_rationale'] == 'Good domain fit. Strong AI centrality.', \
             f"Unexpected llm_rationale: {row['llm_rationale']!r}"
-        assert row['llm_path_name'] == 'AI-Native Fintech', \
-            f"Unexpected llm_path_name: {row['llm_path_name']!r}"
+        assert row['role_family'] == 'AI-Native Fintech', \
+            f"Unexpected role_family: {row['role_family']!r}"
         assert row['llm_flags'] == 'growth_unknown', \
             f"Unexpected llm_flags: {row['llm_flags']!r}"
 
@@ -527,7 +525,7 @@ class TestScoringOutputSchema:
         'llm_score': (int, float),
         'llm_dimensions_evaluated': (int,),
         'llm_rationale': (str,),
-        'llm_path_name': (str,),
+        'role_family': (str,),
         'llm_flags': (str,),
     }
 
@@ -544,7 +542,7 @@ class TestScoringOutputSchema:
             "llm_score": 75,
             "llm_dimensions_evaluated": 8,
             "llm_rationale": "Good fit overall.",
-            "llm_path_name": "Test Path",
+            "role_family": "Test Path",
             "llm_flags": "",
         }
         base.update(overrides)
@@ -708,7 +706,6 @@ class TestMonitorMergeRoleUrl:
             "notes": "Found PM role.",
             "llm_score": 80,
             "llm_rationale": "Good fit.",
-            "llm_path_name": "Test Path",
             "llm_flags": ""
         }]))
 
@@ -756,13 +753,11 @@ class TestProspectingMergeRoleUrl:
             "tech_signals": "AI",
             "open_positions": "Solutions Architect",
             "prospect_status": "active_role",
-            "fit_rationale": "Good fit.",
             "path": 1,
             "path_name": "Test Path",
             "notes": "",
             "llm_score": 75,
             "llm_rationale": "Good fit.",
-            "llm_path_name": "Test Path",
             "llm_flags": ""
         }]))
 

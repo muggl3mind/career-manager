@@ -111,7 +111,7 @@ class TestScoreCompany:
     def _make_row(self, **overrides):
         base = {
             'company': '', 'industry': '', 'tech_signals': '',
-            'fit_rationale': '', 'open_positions': '', 'notes': '',
+            'open_positions': '', 'notes': '',
             'recent_funding': '', 'stage': '', 'careers_url': '',
         }
         base.update(overrides)
@@ -193,7 +193,6 @@ class TestScoreCompany:
             industry='healthcare, clinical',
             tech_signals='agentic ai, multi-agent, llm, ai-native',
             open_positions='senior product manager, solutions architect',
-            fit_rationale='perfect role match, exactly what we need',
             notes='remote, builder culture, innovation, product-led, dream company',
             stage='series d, unicorn',
             recent_funding='raised $100m, sequoia, a16z',
