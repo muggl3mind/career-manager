@@ -113,18 +113,6 @@ def _read_existing(path: Path) -> List[Dict]:
         return list(csv.DictReader(f))
 
 
-def source_tier(source: str, url: str) -> Tuple[str, int]:
-    s = (source or '').lower()
-    u = (url or '').lower()
-    if any(x in u for x in ['greenhouse.io', 'lever.co', 'workdayjobs', 'myworkdayjobs', 'ashbyhq']) or 'company_board' in s:
-        return 'tier1_company_ats', 10
-    if 'linkedin' in s:
-        return 'tier2_linkedin', 7
-    if 'indeed' in s:
-        return 'tier3_indeed', 4
-    return 'tier3_other', 5
-
-
 def detect_industry(text: str) -> str:
     """Classify company industry from text. Customize for your domain."""
     # Override this with your own industry categories
@@ -183,48 +171,6 @@ def check_url(url: str) -> Tuple[bool, str]:
     return False, 'link_timeout'
 
 
-def compute_score(title: str, company: str, desc: str, us_ok: bool, link_ok: bool, src_points: int) -> Tuple[float, Dict[str, int], str]:
-    txt = f"{title} {company} {desc}".lower()
-
-    role_hits = sum(1 for p in ROLE_INCLUDE if re.search(p, title.lower()))
-    domain_hits = sum(1 for k in DOMAIN_KEYWORDS if k in txt)
-    ai_hits = sum(1 for k in AI_KEYWORDS if k in txt)
-
-    role_fit = min(35, 10 + role_hits * 8)
-    domain_fit = min(30, domain_hits * 5)
-    seniority = 15 if any(k in txt for k in ['senior', 'lead', 'principal', 'manager']) else 8
-    ai_signal = min(10, ai_hits * 3 + (2 if 'ai' in title.lower() else 0))
-    source_fit = src_points
-    company_boost = 8 if any(gc in company.lower() for gc in GOLD_COMPANIES) else 0
-
-    loc_bonus = 0 if us_ok else -25
-    link_bonus = 0 if link_ok else -10
-
-    total = max(0, min(100, role_fit + domain_fit + seniority + ai_signal + source_fit + company_boost + loc_bonus + link_bonus))
-
-    reason = f"role={role_fit}, domain={domain_fit}, seniority={seniority}, ai={ai_signal}, source={source_fit}, company_boost={company_boost}, loc={loc_bonus}, link={link_bonus}"
-    return float(total), {
-        'role_fit': role_fit,
-        'domain_fit': domain_fit,
-        'seniority_fit': seniority,
-        'ai_signal': ai_signal,
-        'source_confidence': source_fit,
-        'company_boost': company_boost,
-        'location_adj': loc_bonus,
-        'link_adj': link_bonus,
-    }, reason
-
-
-def fit_band(score: float) -> str:
-    if score >= 85:
-        return 'Excellent'
-    if score >= 70:
-        return 'High'
-    if score >= 55:
-        return 'Medium'
-    return 'Low'
-
-
 def discover(limit: int) -> List[Dict]:
     if not JOBSPY_AVAILABLE or not config_get("integrations.jobspy_enabled", False):
         print("[jobspy] Scraping skipped — disabled or not installed")
@@ -275,7 +221,6 @@ def main() -> int:
     ap.add_argument('--dry-run', action='store_true')
     ap.add_argument('--limit', type=int, default=35)
     ap.add_argument('--allow-global', action='store_true')
-    ap.add_argument('--min-score', type=float, default=65.0)
     ap.add_argument('--preserve-existing-manual', action='store_true', default=True)
     ap.add_argument('--no-preserve-existing-manual', action='store_true')
     ap.add_argument('--skip-eval', action='store_true', help='Skip LLM evaluation, discovery only')
@@ -311,10 +256,7 @@ def main() -> int:
         ok_title, title_reason = gate_title(title, text)
         if not ok_title:
             reason = title_reason
-            us_ok = True
             link_ok = False
-            tier_name, tier_points = source_tier(source, url)
-            score, breakdown, why = 0.0, {}, 'gated_out'
         else:
             us_ok = args.allow_global or (NON_US_PAT.search(text) is None)
             if not us_ok:
@@ -325,16 +267,6 @@ def main() -> int:
                 link_ok = False
             else:
                 link_ok, reason = check_url(url)
-
-            tier_name, tier_points = source_tier(source, url)
-            score, breakdown, why = compute_score(title, company, desc, us_ok, link_ok, tier_points)
-
-            if not reason and score < args.min_score:
-                reason = 'low_score'
-
-            # source confidence gate: indeed must be clearly strong
-            if not reason and tier_name == 'tier3_indeed' and score < 65:
-                reason = 'low_confidence_source'
 
         key = (company.lower(), title.lower(), url.lower())
         key2 = (company.lower(), title.lower())
@@ -349,21 +281,17 @@ def main() -> int:
             'company': company,
             'website': '',
             'careers_url': url,
+            'role_url': '',
             'industry': industry,
             'size': '',
             'stage': '',
             'recent_funding': '',
             'tech_signals': tech_signals,
             'open_positions': title,
-            'fit_score': fit_band(score),
-            'fit_rationale': f"weighted relevance model; source={source}",
             'last_checked': today,
             'notes': f"source={source}",
-            'numeric_score': f"{score:.1f}",
-            'score_breakdown': json.dumps(breakdown, ensure_ascii=False),
             'role_family': d.get('role_family', ''),
             'source': source,
-            'source_tier': tier_name,
             'location_detected': d.get('location', ''),
             'validation_status': 'pass' if not reason else 'fail',
             'exclusion_reason': reason or '',
@@ -389,14 +317,6 @@ def main() -> int:
                     continue
                 k = ((r.get('company') or '').lower(), title.lower(), (r.get('careers_url') or '').lower())
                 if k not in seen:
-                    if not r.get('numeric_score'):
-                        r['numeric_score'] = '82.0'
-                    if not r.get('fit_score'):
-                        r['fit_score'] = fit_band(float(r['numeric_score']))
-                    if not r.get('score_breakdown'):
-                        r['score_breakdown'] = json.dumps({'manual_preserved': True})
-                    if not r.get('source_tier'):
-                        r['source_tier'] = 'tier1_company_ats'
                     if not r.get('validation_status'):
                         r['validation_status'] = 'pass'
                     if 'role_family' not in r:
@@ -415,19 +335,13 @@ def main() -> int:
 
         validated = export_pending(validated, dry_run=args.dry_run)
 
-    # final global ordering: llm_score (if set) → numeric_score → source_tier
+    # final global ordering: llm_score descending
     def sort_key(r):
         llm = r.get('llm_score')
         try:
-            llm_val = float(llm) if llm not in (None, '') else -1.0
+            return float(llm) if llm not in (None, '') else 0.0
         except (TypeError, ValueError):
-            llm_val = -1.0
-        try:
-            kw_val = float(r.get('numeric_score') or 0)
-        except (TypeError, ValueError):
-            kw_val = 0.0
-        tier_val = {'tier1_company_ats': 3, 'tier2_linkedin': 2}.get(r.get('source_tier', ''), 1)
-        return (llm_val if llm_val >= 0 else kw_val, kw_val, tier_val)
+            return 0.0
 
     validated.sort(key=sort_key, reverse=True)
     for i, r in enumerate(validated, 1):
@@ -445,7 +359,6 @@ def main() -> int:
         f"- discovered: {len(discovered)}",
         f"- validated_pass: {len(validated)}",
         f"- rejected: {sum(reasons.values())}",
-        f"- min_score: {args.min_score}",
         f"- llm_eval: {'skipped' if args.skip_eval else 'enabled'}",
         '',
         '## Rejected by reason',
@@ -455,11 +368,10 @@ def main() -> int:
 
     lines += ['', '## Top 15 by score']
     for r in validated[:15]:
-        llm_s = r.get('llm_score')
-        score_label = f"llm={llm_s}" if llm_s not in (None, '') else f"kw={r.get('numeric_score')}"
+        llm_s = r.get('llm_score', '')
         lines.append(
             f"- #{r.get('rank')} {r.get('company')} — {r.get('open_positions')} "
-            f"| {score_label} | {r.get('source_tier')}"
+            f"| score={llm_s} | {r.get('source')}"
         )
 
     report.write_text('\n'.join(lines), encoding='utf-8')
