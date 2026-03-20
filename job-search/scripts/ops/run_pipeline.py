@@ -244,13 +244,7 @@ def phase3() -> dict:
         'errors': [],
     }
 
-    # Score any unscored companies first
-    print("\n[1/3] Scoring unscored companies...")
-    rc = run_script('../core/score_companies.py', [])
-    if rc != 0:
-        print("  [score] WARN: score_companies.py returned non-zero, continuing anyway")
-
-    print("\n[2/3] Generating action list...")
+    print("\n[1/2] Generating action list...")
     action_list_path = DATA / 'action-list.csv'
 
     try:
@@ -261,7 +255,7 @@ def phase3() -> dict:
         results['errors'].append(f'Action list generation failed: {e}')
 
     # Generate dashboard
-    print("\n[3/3] Generating dashboard...")
+    print("\n[2/2] Generating dashboard...")
     dashboard_rc = run_script('generate_dashboard.py', [])
     if dashboard_rc != 0:
         results['errors'].append('Dashboard generation failed')
@@ -314,11 +308,9 @@ def _generate_action_list(output_path: Path) -> None:
             key = company.lower()
             app = app_map.get(key, {})
 
-            # Use llm_score if available, fall back to numeric_score
             llm = row.get('llm_score', '').strip()
-            num = row.get('numeric_score', '').strip()
             try:
-                score = float(llm) if llm else (float(num) if num else 0)
+                score = float(llm) if llm else 0
             except (ValueError, TypeError):
                 score = 0
 
@@ -326,15 +318,15 @@ def _generate_action_list(output_path: Path) -> None:
                 'rank': '',
                 'priority': 'HIGH' if score >= 75 else ('MED' if score >= 60 else 'LOW'),
                 'company': company,
-                'llm_score': llm or num,
-                'path': row.get('llm_path_name', '') or row.get('role_family', ''),
+                'llm_score': llm,
+                'path': row.get('role_family', ''),
                 'role': row.get('open_positions', ''),
                 'apply_url': row.get('role_url', '').strip() or row.get('careers_url', ''),
                 'applied_status': app.get('status', 'not_applied'),
                 'applied_date': app.get('date_added', ''),
                 'last_contact': app.get('last_contact', ''),
                 'contact_name': app.get('contact_name', ''),
-                'fit_summary': row.get('llm_rationale', '') or row.get('fit_rationale', ''),
+                'fit_summary': row.get('llm_rationale', ''),
                 'red_flags': row.get('llm_flags', ''),
             })
 
