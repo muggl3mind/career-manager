@@ -27,8 +27,8 @@ TARGET_COMPANIES_FILE = JOB_SEARCH_DIR / 'data' / 'target-companies.csv'
 
 # CSV headers
 CSV_HEADERS = [
-    'company', 'role', 'job_url', 'status', 'date_added', 'last_contact',
-    'contact_name', 'contact_email', 'priority', 'notes'
+    'company', 'role', 'job_url', 'status', 'date_added', 'date_applied',
+    'last_contact', 'contact_name', 'contact_email', 'priority', 'notes'
 ]
 
 
@@ -91,10 +91,10 @@ def get_company_data_from_research(company_name):
     return {}
 
 
-def add_application(company, role, priority=2, job_url=''):
+def add_application(company, role, priority=2, job_url='', status='researching'):
     """Add a new application to the tracker."""
     applications = read_tracker()
-    
+
     # Check if already exists
     idx, existing = find_company(applications, company)
     if existing:
@@ -102,18 +102,19 @@ def add_application(company, role, priority=2, job_url=''):
             'success': False,
             'message': f"❌ {company} is already in your tracker (status: {existing['status']})"
         }
-    
+
     # Get additional data from research if available
     research_data = get_company_data_from_research(company)
-    
+
     # Build new application
     today = datetime.now().strftime('%Y-%m-%d')
     new_app = {
         'company': company,
         'role': role,
         'job_url': job_url or research_data.get('job_url', ''),
-        'status': 'researching',
+        'status': status,
         'date_added': today,
+        'date_applied': today if status == 'applied' else '',
         'last_contact': '',
         'contact_name': '',
         'contact_email': '',
@@ -163,7 +164,9 @@ def update_status(company, new_status):
     old_status = app['status']
     app['status'] = new_status.lower()
     app['last_contact'] = datetime.now().strftime('%Y-%m-%d')
-    
+    if new_status.lower() == 'applied':
+        app['date_applied'] = datetime.now().strftime('%Y-%m-%d')
+
     applications[idx] = app
     write_tracker(applications)
 
@@ -282,9 +285,10 @@ def find_stale_applications(days_threshold=7):
         
         # Get last activity date
         last_contact = app.get('last_contact', '')
+        date_applied = app.get('date_applied', '')
         date_added = app.get('date_added', '')
-        
-        activity_date = last_contact if last_contact else date_added
+
+        activity_date = last_contact or date_applied or date_added
         if not activity_date:
             continue
         

@@ -56,6 +56,8 @@ After phase 1 completes, continue directly to agent work below.
 2. Read `data/pending-eval.json` (if exists) -> evaluate each job against `references/criteria.md` -> write `data/eval-results.json`
 3. Read `data/prospecting-context.json` -> search for new companies, check named targets -> **score each against criteria.md** -> write `data/prospecting-results.json`
 
+**Location targeting:** Read `search_locations` from `data/search-config.json` to know which countries the user is targeting. Focus web prospecting and monitor searches on companies hiring in those markets.
+
 **Scoring instructions (for steps 1 and 3):**
 When visiting each company, also evaluate it against your `references/criteria.md` rubric:
 1. Read `references/criteria.md` for your 10 scoring dimensions

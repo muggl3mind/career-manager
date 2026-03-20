@@ -47,6 +47,24 @@ def _build_regex(patterns: list) -> re.Pattern:
     cleaned = [re.sub(r'\(\?[aiLmsux]+\)', '', p) for p in patterns]
     return re.compile(r'\b(' + '|'.join(cleaned) + r')\b', re.I)
 
+# JobSpy country codes for Indeed — LinkedIn uses free-text location strings
+COUNTRY_INDEED_MAP = {
+    "United States": "USA",
+    "United Kingdom": "GBR",
+    "Ireland": "IRL",
+    "Canada": "CAN",
+    "Australia": "AUS",
+    "Germany": "DEU",
+    "France": "FRA",
+    "Netherlands": "NLD",
+    "Singapore": "SGP",
+    "India": "IND",
+    "Japan": "JPN",
+    "Spain": "ESP",
+    "Italy": "ITA",
+    "Hong Kong": "HKG",
+}
+
 if _SEARCH_CONFIG:
     QUERY_PACKS = {k: v["queries"] for k, v in _SEARCH_CONFIG["query_packs"].items()}
     QUERY_PACK_TO_PATH = {k: v["label"] for k, v in _SEARCH_CONFIG["query_packs"].items()}
@@ -61,6 +79,7 @@ if _SEARCH_CONFIG:
     AI_KEYWORDS = _kw.get("ai", [])
     TECH_KEYWORDS = _kw.get("tech", [])
     GOLD_COMPANIES = set(_SEARCH_CONFIG.get("gold_companies", []))
+    SEARCH_LOCATIONS = _SEARCH_CONFIG.get("search_locations") or ["United States"]
 else:
     # Defaults so imports don't crash — main() will exit if config is missing
     QUERY_PACKS = {}
@@ -75,6 +94,7 @@ else:
     AI_KEYWORDS = []
     TECH_KEYWORDS = []
     GOLD_COMPANIES = set()
+    SEARCH_LOCATIONS = ["United States"]
 
 PLACEHOLDER_PAT = re.compile(r"\b(check careers|see careers|careers page|tbd|n/?a)\b", re.I)
 
@@ -180,39 +200,48 @@ def discover(limit: int) -> List[Dict]:
         print("[jobspy] Scraping skipped — disabled or not installed")
         return []
     rows: List[Dict] = []
+    warned_locations: set = set()
     for family, queries in QUERY_PACKS.items():
         for q in queries:
-            try:
-                df = scrape_jobs(
-                    site_name=['indeed', 'linkedin'],
-                    search_term=q,
-                    location='United States',
-                    results_wanted=limit,
-                    hours_old=168,
-                    country_indeed='USA',
-                )
-            except Exception:
-                continue
-            if df is None or len(df) == 0:
-                continue
-            for _, r in df.iterrows():
-                company = norm(str(r.get('company') or ''))
-                title = norm(str(r.get('title') or ''))
-                url = norm_url(str(r.get('job_url') or ''))
-                desc = norm(str(r.get('description') or ''))[:2500]
-                loc = norm(str(r.get('location') or ''))
-                src = norm(str(r.get('site') or 'jobspy'))
-                if not company or not title or not url:
+            for loc in SEARCH_LOCATIONS:
+                country_code = COUNTRY_INDEED_MAP.get(loc)
+                sites = ['indeed', 'linkedin'] if country_code else ['linkedin']
+                if not country_code and loc not in warned_locations:
+                    print(f"[jobspy] No Indeed country code for '{loc}' — LinkedIn only")
+                    warned_locations.add(loc)
+                try:
+                    kwargs = {
+                        'site_name': sites,
+                        'search_term': q,
+                        'location': loc,
+                        'results_wanted': limit,
+                        'hours_old': 168,
+                    }
+                    if country_code:
+                        kwargs['country_indeed'] = country_code
+                    df = scrape_jobs(**kwargs)
+                except Exception:
                     continue
-                rows.append({
-                    'company': company,
-                    'title': title,
-                    'url': url,
-                    'desc': desc,
-                    'location': loc,
-                    'source': src,
-                    'role_family': QUERY_PACK_TO_PATH.get(family, family),
-                })
+                if df is None or len(df) == 0:
+                    continue
+                for _, r in df.iterrows():
+                    company = norm(str(r.get('company') or ''))
+                    title = norm(str(r.get('title') or ''))
+                    url = norm_url(str(r.get('job_url') or ''))
+                    desc = norm(str(r.get('description') or ''))[:2500]
+                    row_loc = norm(str(r.get('location') or ''))
+                    src = norm(str(r.get('site') or 'jobspy'))
+                    if not company or not title or not url:
+                        continue
+                    rows.append({
+                        'company': company,
+                        'title': title,
+                        'url': url,
+                        'desc': desc,
+                        'location': row_loc,
+                        'source': src,
+                        'role_family': QUERY_PACK_TO_PATH.get(family, family),
+                    })
     return rows
 
 
@@ -258,9 +287,9 @@ def main() -> int:
             reason = title_reason
             link_ok = False
         else:
-            us_ok = args.allow_global or (NON_US_PAT.search(text) is None)
-            if not us_ok:
-                reason = 'non_us_role'
+            location_ok = args.allow_global or (NON_US_PAT.search(text) is None)
+            if not location_ok:
+                reason = 'excluded_location'
                 link_ok = False
             elif PLACEHOLDER_PAT.search(title):
                 reason = 'placeholder_role'

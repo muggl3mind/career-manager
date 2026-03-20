@@ -52,6 +52,7 @@ Use `scripts/tracker_commands.py` for all CSV operations. Import and call functi
 | job_url | Link to posting |
 | status | Current status |
 | date_added | When first added (YYYY-MM-DD) |
+| date_applied | When formal application submitted (YYYY-MM-DD) |
 | last_contact | Last communication date |
 | contact_name | Hiring manager/recruiter |
 | contact_email | Contact email |

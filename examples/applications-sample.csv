@@ -1,6 +1,6 @@
-company,role,job_url,status,date_added,last_contact,contact_name,contact_email,priority,notes
-Acme AI Finance,AI Product Manager,https://acme.example.com/careers/ai-pm,applied,2026-01-20,2026-02-01,Jane Smith,jane@example.com,1,[2026-01-20] Applied via website. [2026-02-01] Recruiter screen scheduled.
-NovaPE Software,Product Lead,https://novape.example.com/careers/product-lead,interviewing,2026-01-25,2026-02-15,Bob Chen,bob@example.com,1,[2026-01-25] Referral from network. [2026-02-10] Phone screen passed. [2026-02-15] Technical round scheduled.
+company,role,job_url,status,date_added,date_applied,last_contact,contact_name,contact_email,priority,notes
+Acme AI Finance,AI Product Manager,https://acme.example.com/careers/ai-pm,applied,2026-01-20,2026-01-20,2026-02-01,Jane Smith,jane@example.com,1,[2026-01-20] Applied via website. [2026-02-01] Recruiter screen scheduled.
+NovaPE Software,Product Lead,https://novape.example.com/careers/product-lead,interviewing,2026-01-25,2026-01-25,2026-02-15,Bob Chen,bob@example.com,1,[2026-01-25] Referral from network. [2026-02-10] Phone screen passed. [2026-02-15] Technical round scheduled.
 Frontier AI Labs,Applied AI PM,https://frontier.example.com/careers/applied-pm,researching,2026-03-05,,,,2,[2026-03-05] Exploring role. Need to prep dossier.
-Granite Capital,AI Operating Partner,https://granite.example.com/careers/ai-ops,rejected,2026-02-05,2026-02-20,,,3,[2026-02-05] Applied cold. [2026-02-20] Rejection email received.
-DataLedger Inc,Product Manager,https://dataledger.example.com/careers/pm,applied,2026-02-22,2026-02-22,,,2,[2026-02-22] Applied through job board.
+Granite Capital,AI Operating Partner,https://granite.example.com/careers/ai-ops,rejected,2026-02-05,2026-02-05,2026-02-20,,,3,[2026-02-05] Applied cold. [2026-02-20] Rejection email received.
+DataLedger Inc,Product Manager,https://dataledger.example.com/careers/pm,applied,2026-02-22,2026-02-22,2026-02-22,,,2,[2026-02-22] Applied through job board.

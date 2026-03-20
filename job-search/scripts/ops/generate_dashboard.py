@@ -7,7 +7,7 @@ Usage:
   uv run job-search/scripts/ops/generate_dashboard.py --full    # full target list
 
 Reads directly from source-of-truth CSVs (target-companies.csv + applications.csv).
-Reads brand tokens from /brand/theme.css at build time.
+Reads brand tokens from /brand/theme.css at build time if available, otherwise uses built-in defaults.
 """
 from __future__ import annotations
 
@@ -24,12 +24,42 @@ TRACKER_DATA = Path(__file__).resolve().parents[3] / 'job-tracker' / 'data'
 BRAND = Path(__file__).resolve().parents[5] / 'brand'
 
 
+FALLBACK_THEME = """\
+:root {
+  --bg-deep: #0e1420;
+  --bg-base: #181e28;
+  --bg-surface: #1e2838;
+  --bg-elevated: #263040;
+  --text-headline: #f5f8fc;
+  --text-body: #c0cad5;
+  --text-muted: #5a6a78;
+  --text-dim: #4a5a6a;
+  --accent: #96c3e6;
+  --accent-bg: rgba(150,195,230,0.1);
+  --accent-border: rgba(150,195,230,0.08);
+  --status-matched: #5cb87a;
+  --status-matched-bg: rgba(92,184,122,0.12);
+  --status-partial: #d4a043;
+  --status-partial-bg: rgba(212,160,67,0.12);
+  --status-missing: #cf5555;
+  --status-missing-bg: rgba(207,85,85,0.12);
+  --accent-light: #2563eb;
+  --accent-light-bg: rgba(37,99,235,0.08);
+  --card-bg: #ffffff;
+  --card-text-primary: #1a2030;
+  --card-text-secondary: #3a4a5a;
+  --card-text-muted: #8090a0;
+  --card-border: #e8ecf0;
+}
+"""
+
+
 def read_brand_css() -> str:
-    """Read theme.css from brand folder for inlining."""
+    """Read theme.css from brand folder for inlining. Falls back to embedded defaults."""
     path = BRAND / 'theme.css'
     if not path.exists():
-        print(f"  WARNING: Brand theme not found at {path}, using fallback colors")
-        return ''
+        print(f"  INFO: Brand theme not found at {path}, using built-in defaults")
+        return FALLBACK_THEME
     return path.read_text(encoding='utf-8')
 
 
@@ -133,6 +163,7 @@ def merge_data(targets: list[dict], apps: list[dict]) -> list[dict]:
             matched_app_keys.add(key)
         row['app_status'] = app.get('status', '')
         row['date_added'] = app.get('date_added', '')
+        row['date_applied'] = app.get('date_applied', '')
         row['last_contact'] = app.get('last_contact', '')
         row['contact_name'] = app.get('contact_name', '')
         row['contact_email'] = app.get('contact_email', '')
@@ -148,6 +179,7 @@ def merge_data(targets: list[dict], apps: list[dict]) -> list[dict]:
                 'careers_url': app.get('job_url', ''),
                 'app_status': app.get('status', ''),
                 'date_added': app.get('date_added', ''),
+                'date_applied': app.get('date_applied', ''),
                 'last_contact': app.get('last_contact', ''),
                 'contact_name': app.get('contact_name', ''),
                 'contact_email': app.get('contact_email', ''),
@@ -199,6 +231,17 @@ def classify_staleness(row: dict) -> str:
         except ValueError:
             pass
 
+    date_applied = row.get('date_applied', '').strip()
+    if date_applied:
+        try:
+            applied_date = date.fromisoformat(date_applied)
+            days_since = (today - applied_date).days
+            if days_since >= STALE_DAYS:
+                return 'stale'
+            return 'recent'
+        except ValueError:
+            pass
+
     if date_added:
         try:
             added_date = date.fromisoformat(date_added)
@@ -215,7 +258,9 @@ def classify_staleness(row: dict) -> str:
 def suggested_action(row: dict, staleness: str) -> str:
     """Generate suggested next action text based on staleness and contacts."""
     contact = row.get('contact_name', '').strip()
+    date_applied = row.get('date_applied', '').strip()
     date_added = row.get('date_added', '').strip()
+    ref_date = date_applied or date_added
 
     if staleness == 'stale':
         if contact:
@@ -228,10 +273,10 @@ def suggested_action(row: dict, staleness: str) -> str:
         return "Consider re-applying or finding a contact"
 
     # recent
-    if contact and date_added:
+    if contact and ref_date:
         try:
-            added = date.fromisoformat(date_added)
-            followup_by = added + timedelta(days=STALE_DAYS)
+            ref = date.fromisoformat(ref_date)
+            followup_by = ref + timedelta(days=STALE_DAYS)
             return f"Follow up with {contact} if no response by {followup_by.isoformat()}"
         except ValueError:
             pass
@@ -268,9 +313,9 @@ def build_followup_cards(rows: list[dict]) -> str:
     if not rows:
         return '<p class="empty-message">No applications to follow up on. Explore best fits below.</p>'
 
-    # Sort by staleness (oldest date_added first)
+    # Sort by staleness (oldest date_applied first)
     def sort_key(r):
-        days = _days_since(r.get('date_added', ''))
+        days = _days_since(r.get('date_applied', '') or r.get('date_added', ''))
         return -days if days >= 0 else -9999
 
     rows = sorted(rows, key=sort_key)
@@ -289,14 +334,14 @@ def build_followup_cards(rows: list[dict]) -> str:
         if role_count > 1:
             role_text += f' <span class="fc-role-count">(+{role_count - 1} more)</span>'
 
-        date_added = r.get('date_added', '').strip()
-        days = _days_since(date_added)
+        date_applied = r.get('date_applied', '').strip() or r.get('date_added', '').strip()
+        days = _days_since(date_applied)
         days_text = f'{days} days ago' if days >= 0 else 'unknown'
 
         try:
-            applied_display = datetime.fromisoformat(date_added).strftime('%b %d')
+            applied_display = datetime.fromisoformat(date_applied).strftime('%b %d')
         except (ValueError, TypeError):
-            applied_display = '—'
+            applied_display = '\u2014'
 
         contact = escape(r.get('contact_name', '').strip())
         contact_html = f'<div class="fc-contact">{contact}</div>' if contact else ''
@@ -333,11 +378,11 @@ def build_closed_out_cards(rows: list[dict]) -> str:
             r.get('open_positions', '') or r.get('role', ''))
         role_text = escape(display_roles[0]) if display_roles else '-'
 
-        date_added = r.get('date_added', '').strip()
+        date_display_str = r.get('date_applied', '').strip() or r.get('date_added', '').strip()
         try:
-            date_display = datetime.fromisoformat(date_added).strftime('%b %d')
+            date_display = datetime.fromisoformat(date_display_str).strftime('%b %d')
         except (ValueError, TypeError):
-            date_display = '—'
+            date_display = '\u2014'
 
         cards.append(f'''<div class="followup-card closed-out">
   <div class="fc-top">
@@ -450,11 +495,13 @@ def build_pipeline_table(rows: list[dict]) -> str:
         status = r.get('app_status', '').strip()
         label, css_class = STATUS_LABELS.get(status, ('Not Applied', 'status-not'))
 
-        date_added = r.get('date_added', '').strip()
+        last_action_date = (r.get('last_contact', '').strip()
+                           or r.get('date_applied', '').strip()
+                           or r.get('date_added', '').strip())
         try:
-            last_action = datetime.fromisoformat(date_added).strftime('%b %d')
+            last_action = datetime.fromisoformat(last_action_date).strftime('%b %d')
         except (ValueError, TypeError):
-            last_action = '—'
+            last_action = '\u2014'
 
         url = (r.get('role_url', '') or r.get('careers_url', '')).strip()
         company_el = f'<a href="{escape(url)}" target="_blank">{company}</a>' if url else company

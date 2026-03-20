@@ -79,6 +79,7 @@ ML teams at scale rather than building dashboards or ad-hoc analysis.
 
 ```json
 {
+  "search_locations": ["United States"],
   "query_packs": {
     "ml_infrastructure": {
       "label": "ML Infrastructure & Platform Engineering",

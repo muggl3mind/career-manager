@@ -92,11 +92,11 @@ class TestReadApplications:
     def test_reads_all_rows(self, tmp_path):
         csv_path = tmp_path / 'applications.csv'
         _write_csv(csv_path,
-            ['company', 'role', 'job_url', 'status', 'date_added',
+            ['company', 'role', 'job_url', 'status', 'date_added', 'date_applied',
              'last_contact', 'contact_name', 'contact_email', 'priority', 'notes'],
             [
-                ['Acme', 'PM', '', 'applied', '2026-03-01', '', '', '', '', ''],
-                ['BigCo', 'Eng', '', 'rejected', '2026-02-01', '', '', '', '', ''],
+                ['Acme', 'PM', '', 'applied', '2026-03-01', '2026-03-01', '', '', '', '', ''],
+                ['BigCo', 'Eng', '', 'rejected', '2026-02-01', '', '', '', '', '', ''],
             ])
         rows = read_applications(csv_path)
         assert len(rows) == 2
@@ -114,6 +114,7 @@ class TestMergeData:
         ]
         apps = [
             {'company': 'Acme', 'status': 'applied', 'date_added': '2026-03-01',
+             'date_applied': '2026-03-01',
              'last_contact': '', 'contact_name': 'Jane', 'contact_email': '',
              'role': 'PM', 'notes': ''},
         ]
@@ -121,12 +122,14 @@ class TestMergeData:
         acme = next(r for r in merged if r['company'] == 'Acme')
         assert acme['app_status'] == 'applied'
         assert acme['contact_name'] == 'Jane'
+        assert acme['date_applied'] == '2026-03-01'
         bigco = next(r for r in merged if r['company'] == 'BigCo')
         assert bigco['app_status'] == ''
 
     def test_case_insensitive_match(self):
         targets = [{'company': '  Acme Corp  ', 'llm_score': '90', 'role_family': 'AI'}]
         apps = [{'company': 'acme corp', 'status': 'applied', 'date_added': '2026-03-01',
+                 'date_applied': '',
                  'last_contact': '', 'contact_name': '', 'contact_email': '',
                  'role': '', 'notes': ''}]
         merged = merge_data(targets, apps)
@@ -158,6 +161,19 @@ class TestStaleness:
 
     def test_missing_date_returns_stale(self):
         row = {'date_added': '', 'last_contact': '', 'contact_name': ''}
+        assert classify_staleness(row) == 'stale'
+
+    def test_date_applied_used_before_date_added(self):
+        old_added = (date.today() - timedelta(days=30)).isoformat()
+        recent_applied = (date.today() - timedelta(days=5)).isoformat()
+        row = {'date_added': old_added, 'date_applied': recent_applied,
+               'last_contact': '', 'contact_name': ''}
+        assert classify_staleness(row) == 'recent'
+
+    def test_stale_date_applied(self):
+        old_applied = (date.today() - timedelta(days=20)).isoformat()
+        row = {'date_added': old_applied, 'date_applied': old_applied,
+               'last_contact': '', 'contact_name': ''}
         assert classify_staleness(row) == 'stale'
 
 
@@ -210,7 +226,8 @@ class TestBuildFollowupCards:
     def test_renders_company_name(self):
         rows = [{
             'company': 'Acme', 'llm_score': '90', 'open_positions': 'PM',
-            'date_added': '2026-01-01', 'last_contact': '', 'contact_name': '',
+            'date_added': '2026-01-01', 'date_applied': '2026-01-01',
+            'last_contact': '', 'contact_name': '',
             'app_status': 'applied', 'role_family': 'AI',
             'careers_url': '', 'role_url': '',
         }]
@@ -221,7 +238,8 @@ class TestBuildFollowupCards:
         old_date = (date.today() - timedelta(days=20)).isoformat()
         rows = [{
             'company': 'Acme', 'llm_score': '90', 'open_positions': 'PM',
-            'date_added': old_date, 'last_contact': '', 'contact_name': '',
+            'date_added': old_date, 'date_applied': old_date,
+            'last_contact': '', 'contact_name': '',
             'app_status': 'applied', 'role_family': 'AI',
             'careers_url': '', 'role_url': '',
         }]
@@ -232,7 +250,8 @@ class TestBuildFollowupCards:
         old_date = (date.today() - timedelta(days=20)).isoformat()
         rows = [{
             'company': 'Acme', 'llm_score': '90', 'open_positions': 'PM',
-            'date_added': old_date, 'last_contact': '', 'contact_name': '',
+            'date_added': old_date, 'date_applied': old_date,
+            'last_contact': '', 'contact_name': '',
             'app_status': 'applied', 'role_family': 'AI',
             'careers_url': '', 'role_url': '',
         }]
@@ -247,7 +266,8 @@ class TestBuildFollowupCards:
         recent_date = (date.today() - timedelta(days=3)).isoformat()
         rows = [{
             'company': 'Acme', 'llm_score': '90', 'open_positions': 'PM',
-            'date_added': recent_date, 'last_contact': '', 'contact_name': 'Jane Doe',
+            'date_added': recent_date, 'date_applied': recent_date,
+            'last_contact': '', 'contact_name': 'Jane Doe',
             'app_status': 'applied', 'role_family': 'AI',
             'careers_url': '', 'role_url': '',
         }]
@@ -259,16 +279,30 @@ class TestBuildFollowupCards:
         recent = (date.today() - timedelta(days=5)).isoformat()
         rows = [
             {'company': 'Recent', 'llm_score': '90', 'open_positions': '',
-             'date_added': recent, 'last_contact': '', 'contact_name': '',
+             'date_added': recent, 'date_applied': recent,
+             'last_contact': '', 'contact_name': '',
              'app_status': 'applied', 'role_family': '', 'careers_url': '', 'role_url': ''},
             {'company': 'Old', 'llm_score': '80', 'open_positions': '',
-             'date_added': old, 'last_contact': '', 'contact_name': '',
+             'date_added': old, 'date_applied': old,
+             'last_contact': '', 'contact_name': '',
              'app_status': 'applied', 'role_family': '', 'careers_url': '', 'role_url': ''},
         ]
         html_out = build_followup_cards(rows)
         old_pos = html_out.index('Old')
         recent_pos = html_out.index('Recent')
         assert old_pos < recent_pos
+
+    def test_date_applied_empty_falls_back_to_date_added(self):
+        old_date = (date.today() - timedelta(days=10)).isoformat()
+        rows = [{
+            'company': 'NoDates', 'llm_score': '70', 'open_positions': 'PM',
+            'date_added': old_date, 'date_applied': '',
+            'last_contact': '', 'contact_name': '',
+            'app_status': 'applied', 'role_family': 'AI',
+            'careers_url': '', 'role_url': '',
+        }]
+        html_out = build_followup_cards(rows)
+        assert '10 days' in html_out
 
 
 class TestBuildBestFits:
@@ -343,11 +377,12 @@ class TestBuildBestFits:
 
 
 class TestBuildPipelineTable:
-    def _make_row(self, company, score, path, status='', date_added=''):
+    def _make_row(self, company, score, path, status='', date_added='', date_applied=''):
         return {
             'company': company, 'llm_score': str(score), 'role_family': path,
             'open_positions': 'PM; Eng', 'app_status': status,
-            'date_added': date_added, 'careers_url': '', 'role_url': '',
+            'date_added': date_added, 'date_applied': date_applied,
+            'careers_url': '', 'role_url': '',
         }
 
     def test_renders_all_companies(self):
@@ -402,9 +437,9 @@ class TestBuildFullDashboard:
                 ['Fresh Co', '85', '', 'Finance', 'Good', 'Eng', 'pass', '', '', 'web'],
             ])
         _write_csv(apps_path,
-            ['company', 'role', 'job_url', 'status', 'date_added',
+            ['company', 'role', 'job_url', 'status', 'date_added', 'date_applied',
              'last_contact', 'contact_name', 'contact_email', 'priority', 'notes'],
-            [['Applied Co', 'PM', '', 'applied', '2026-03-01', '', '', '', '', '']])
+            [['Applied Co', 'PM', '', 'applied', '2026-03-01', '2026-03-01', '', '', '', '', '']])
 
         targets = read_target_companies(targets_path)
         apps = read_applications(apps_path)
@@ -433,9 +468,9 @@ class TestBuildFullDashboard:
                 ['C', '80', '', 'AI', '', '', 'pass', '', '', ''],
             ])
         _write_csv(apps_path,
-            ['company', 'role', 'job_url', 'status', 'date_added',
+            ['company', 'role', 'job_url', 'status', 'date_added', 'date_applied',
              'last_contact', 'contact_name', 'contact_email', 'priority', 'notes'],
-            [['A', '', '', 'applied', '2026-01-01', '', '', '', '', '']])
+            [['A', '', '', 'applied', '2026-01-01', '2026-01-01', '', '', '', '', '']])
 
         targets = read_target_companies(targets_path)
         apps = read_applications(apps_path)

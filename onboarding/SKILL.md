@@ -32,11 +32,12 @@ If the file doesn't exist or isn't a supported format, ask again with guidance.
 
 Ask this single combined question:
 
-"Based on your resume, I can see your background. I need three things your resume doesn't tell me:
+"Based on your resume, I can see your background. I need four things your resume doesn't tell me:
 
 1. **Target roles** - What roles are you going after? Be specific about seniority (Senior PM, Director of Engineering, Solutions Architect) and domain.
 2. **Salary floor** - What's the minimum base salary you'd accept?
-3. **Location** - Remote, hybrid, or onsite? Open to relocation?"
+3. **Location** - Remote, hybrid, or onsite? Open to relocation?
+4. **Job markets** - Which countries should I search for jobs in? (Default: United States)"
 
 ### Step 3: Confirm Profile
 
@@ -125,6 +126,7 @@ Generate valid JSON matching this exact structure. **Pay close attention to type
 
 ```json
 {
+  "search_locations": ["United States"],
   "query_packs": {
     "<snake_case_path_key>": {
       "label": "Human-Readable Path Name",
@@ -185,6 +187,13 @@ Generate valid JSON matching this exact structure. **Pay close attention to type
 - One prospecting path per career path (for web discovery), numbered to match path_check_instructions keys
 - All regex patterns must be valid Python regex, no inline flags like `(?i)`
 - Minimum: 3+ paths, 3+ queries per pack, 5+ named targets per path, 10+ gold companies
+
+**Search locations:**
+- `search_locations` is the user's answer to "Which countries should I search for jobs in?"
+- Default: `["United States"]` if the user doesn't specify
+- If user says "Europe", expand to specific countries: Ireland, United Kingdom, Germany, Netherlands, France
+- Populate each query pack's `locations` field from `search_locations` (plus "Remote")
+- Auto-generate `location_exclude_patterns` to exclude countries NOT in `search_locations`. Do not add exclude patterns for countries the user wants to search in.
 
 **Scoring keywords:** Each scoring dict maps keyword strings to integer weights. Higher weights = stronger signal for that category. Generate weights based on how central each term is to the user's target roles.
 

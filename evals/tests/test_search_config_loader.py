@@ -109,3 +109,35 @@ def test_load_malformed_json(tmp_path):
     config_path.write_text("{bad json")
     result = load_search_config(config_path)
     assert result is None
+
+
+def test_search_locations_optional(valid_config):
+    """search_locations is optional — pipeline defaults to US if missing."""
+    result = load_search_config(valid_config)
+    # Field is optional, so config loads fine without it
+    assert result is not None
+    # Pipeline code uses .get() with default, so no crash
+    assert result.get("search_locations", ["United States"]) == ["United States"]
+
+
+def test_search_locations_present(tmp_path):
+    """search_locations is read when present."""
+    config = {
+        "search_locations": ["United States", "Ireland"],
+        "query_packs": {
+            "test_pack": {
+                "label": "Test Pack",
+                "queries": ["test query"]
+            }
+        },
+        "role_include_patterns": ["engineer"],
+        "role_exclude_patterns": ["intern"],
+        "employer_exclude_patterns": ["university"],
+        "location_exclude_patterns": [],
+        "keywords": {"domain": ["ai"], "ai": ["ai"], "tech": ["python"]},
+        "gold_companies": ["acme corp"]
+    }
+    config_path = tmp_path / "search-config.json"
+    config_path.write_text(json.dumps(config))
+    result = load_search_config(config_path)
+    assert result["search_locations"] == ["United States", "Ireland"]
