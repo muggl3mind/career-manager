@@ -31,6 +31,11 @@ PENDING_EVAL = DATA / 'pending-eval.json'
 
 sys.path.insert(0, str(BASE / 'scripts' / 'core'))
 from csv_schema import HEADER
+from path_normalizer import normalize_path
+from search_config_loader import load_search_config
+
+_SEARCH_CONFIG = load_search_config(DATA / 'search-config.json')
+_CANONICAL_PATHS = [v['label'] for v in _SEARCH_CONFIG['query_packs'].values()] if _SEARCH_CONFIG else []
 
 
 def _read_csv(path: Path) -> List[Dict]:
@@ -61,15 +66,10 @@ def _write_csv(path: Path, rows: List[Dict], header: List[str]) -> None:
 def _sort_key(r: Dict) -> tuple:
     llm = r.get('llm_score')
     try:
-        llm_val = float(llm) if llm not in (None, '') else -1.0
+        llm_val = float(llm) if llm not in (None, '') else 0.0
     except (TypeError, ValueError):
-        llm_val = -1.0
-    try:
-        kw_val = float(r.get('numeric_score') or 0)
-    except (TypeError, ValueError):
-        kw_val = 0.0
-    tier_val = {'tier1_company_ats': 3, 'tier2_linkedin': 2}.get(r.get('source_tier', ''), 1)
-    return (llm_val if llm_val >= 0 else kw_val, kw_val, tier_val)
+        llm_val = 0.0
+    return (llm_val,)
 
 
 def main() -> int:
@@ -112,8 +112,6 @@ def main() -> int:
         hard_pass = str(ev.get('hard_pass', False)).lower() == 'true'
 
         row['llm_score'] = int(total) if total else ''
-        row['llm_path'] = ev.get('path', '')
-        row['llm_path_name'] = ev.get('path_name', '')
         row['llm_rationale'] = ev.get('fit_summary', '')
         row['llm_flags'] = ' | '.join(ev.get('red_flags', []))
         row['llm_hard_pass'] = 'true' if hard_pass else 'false'
@@ -121,6 +119,7 @@ def main() -> int:
         row['llm_evaluated_at'] = now_ts
         if ev.get('path_name'):
             row['role_family'] = ev['path_name']
+        row['role_family'] = normalize_path(row.get('role_family', ''), _CANONICAL_PATHS)
 
         if hard_pass:
             hard_pass_urls.add(url)
@@ -129,12 +128,11 @@ def main() -> int:
         seen[url] = {
             'first_seen': now_ts,
             'llm_score': row['llm_score'],
-            'llm_path': row['llm_path'],
-            'llm_path_name': row['llm_path_name'],
-            'llm_rationale': row['llm_rationale'],
-            'llm_flags': row['llm_flags'],
-            'llm_hard_pass': row['llm_hard_pass'],
-            'llm_hard_pass_reason': row['llm_hard_pass_reason'],
+            'role_family': row.get('role_family', ''),
+            'llm_rationale': row.get('llm_rationale', ''),
+            'llm_flags': row.get('llm_flags', ''),
+            'llm_hard_pass': row.get('llm_hard_pass', ''),
+            'llm_hard_pass_reason': row.get('llm_hard_pass_reason', ''),
             'llm_evaluated_at': now_ts,
             'title': row.get('open_positions', ''),
             'company': row.get('company', ''),
@@ -152,7 +150,7 @@ def main() -> int:
         else:
             final_target.append(row)
 
-    # Re-sort target by llm_score → numeric_score → source_tier
+    # Re-sort target by llm_score
     final_target.sort(key=_sort_key, reverse=True)
     for i, r in enumerate(final_target, 1):
         r['rank'] = str(i)
