@@ -1,11 +1,24 @@
 """Tests for company_dedup module."""
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
+import pytest
+
 # Ensure core dir is on path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+
+@pytest.fixture(autouse=True)
+def reset_normalizer(tmp_path):
+    """Reset path_normalizer cache and point to temp config."""
+    import path_normalizer
+    path_normalizer._cache = None
+    yield
+    path_normalizer._cache = None
+
 
 from company_dedup import find_existing, merge_into_existing
 
@@ -16,6 +29,23 @@ def _make_row(company: str, **kwargs) -> dict:
     return row
 
 
+def _write_config(tmp_path, aliases=None):
+    """Write a minimal search-config.json with optional aliases."""
+    config = {
+        "query_packs": {},
+        "company_aliases": aliases or {},
+        "role_include_patterns": [],
+        "role_exclude_patterns": [],
+        "employer_exclude_patterns": [],
+        "location_exclude_patterns": [],
+        "keywords": {"domain": []},
+        "gold_companies": [],
+    }
+    path = tmp_path / "search-config.json"
+    path.write_text(json.dumps(config))
+    return path
+
+
 class TestFindExisting:
     def test_find_existing_exact_match(self):
         rows = [_make_row('Anthropic'), _make_row('OpenAI')]
@@ -23,35 +53,32 @@ class TestFindExisting:
         assert result is not None
         assert result['company'] == 'Anthropic'
 
-    def test_find_existing_alias_match(self):
-        """Alias should match via normalize_company. Requires alias to be configured."""
-        # This test verifies the alias mechanism works. Add aliases via
-        # _company_alias() in path_normalizer.py for your target companies.
-        # Example: _company_alias("Acme Corp", "acme", "acme inc")
-        from path_normalizer import _company_alias, _COMPANY_ALIAS
-        _company_alias("Acme Corp", "acme inc")
-        try:
-            rows = [_make_row('Acme Corp'), _make_row('OpenAI')]
-            result = find_existing('Acme Inc', rows)
-            assert result is not None
-            assert result['company'] == 'Acme Corp'
-        finally:
-            # Clean up test alias
-            _COMPANY_ALIAS.pop('acme inc', None)
-            _COMPANY_ALIAS.pop('acme corp', None)
+    def test_find_existing_alias_match(self, tmp_path):
+        """Alias should match via normalize_company from search-config.json."""
+        import path_normalizer
+        config_path = _write_config(tmp_path, aliases={"acme inc": "Acme Corp"})
+        path_normalizer.CONFIG_PATH = config_path
+        path_normalizer._cache = None
 
-    def test_find_existing_alias_match_reverse(self):
-        """Reverse alias lookup should also work."""
-        from path_normalizer import _company_alias, _COMPANY_ALIAS
-        _company_alias("Acme Corp", "acme inc")
-        try:
-            rows = [_make_row('Acme Inc'), _make_row('OpenAI')]
-            result = find_existing('Acme Corp', rows)
-            assert result is not None
-            assert result['company'] == 'Acme Inc'
-        finally:
-            _COMPANY_ALIAS.pop('acme inc', None)
-            _COMPANY_ALIAS.pop('acme corp', None)
+        rows = [_make_row('Acme Corp'), _make_row('OpenAI')]
+        result = find_existing('Acme Inc', rows)
+        assert result is not None
+        assert result['company'] == 'Acme Corp'
+
+    def test_find_existing_alias_match_reverse(self, tmp_path):
+        """Reverse alias lookup — canonical name finds aliased row."""
+        import path_normalizer
+        config_path = _write_config(tmp_path, aliases={
+            "acme inc": "Acme Corp",
+            "acme corp": "Acme Corp",
+        })
+        path_normalizer.CONFIG_PATH = config_path
+        path_normalizer._cache = None
+
+        rows = [_make_row('Acme Inc'), _make_row('OpenAI')]
+        result = find_existing('Acme Corp', rows)
+        assert result is not None
+        assert result['company'] == 'Acme Inc'
 
     def test_find_existing_no_match(self):
         rows = [_make_row('Anthropic'), _make_row('OpenAI')]
@@ -90,7 +117,6 @@ class TestMergeIntoExisting:
         existing = _make_row('Anthropic', open_positions='ML Engineer')
         new_data = {'open_positions': 'ML Engineer', 'last_checked': '2026-03-20'}
         merge_into_existing(existing, new_data)
-        # Should not append since it's already there
         assert existing['open_positions'] == 'ML Engineer'
 
     def test_merge_updates_last_checked(self):
