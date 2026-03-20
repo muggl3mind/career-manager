@@ -121,22 +121,68 @@ Generate with this structure:
 
 #### File 4: `job-search/data/search-config.json`
 
-Generate valid JSON matching this schema (query_packs, role_include_patterns, role_exclude_patterns, employer_exclude_patterns, location_exclude_patterns, keywords, gold_companies, prospecting_paths, path_check_instructions, role_patterns, scoring).
+Generate valid JSON matching this exact structure. **Pay close attention to types. `query_packs` and `path_check_instructions` are dicts, not lists.**
 
-**Query generation rules:**
+```json
+{
+  "query_packs": {
+    "<snake_case_path_key>": {
+      "label": "Human-Readable Path Name",
+      "queries": ["search query 1", "search query 2", "..."],
+      "locations": ["Remote", "United States"],
+      "job_type": "fulltime"
+    }
+  },
+  "role_include_patterns": ["regex_pattern", "..."],
+  "role_exclude_patterns": ["regex_pattern", "..."],
+  "employer_exclude_patterns": ["regex_pattern", "..."],
+  "location_exclude_patterns": ["regex_pattern", "..."],
+  "keywords": {
+    "domain": ["keyword", "..."],
+    "ai": ["keyword", "..."],
+    "tech": ["keyword", "..."]
+  },
+  "gold_companies": ["Company Name", "..."],
+  "prospecting_paths": [
+    {
+      "path": 1,
+      "name": "Path Name",
+      "search_queries": ["web search query", "..."],
+      "named_targets": ["Company", "..."],
+      "new_targets_goal": 3
+    }
+  ],
+  "path_check_instructions": {
+    "1": "Instructions for path 1 search...",
+    "2": "Instructions for path 2 search..."
+  },
+  "role_patterns": ["human-readable role title", "..."],
+  "scoring": {
+    "domain_keywords": {"keyword": 8},
+    "ai_keywords": {"keyword": 6},
+    "role_keywords": {"keyword": 7},
+    "comp_indicators": {"keyword": 5},
+    "growth_indicators": {"keyword": 4}
+  }
+}
+```
+
+**Critical rules:**
+- `query_packs` is a **dict keyed by snake_case name**, NOT a list. Each value has `label`, `queries`, `locations`, `job_type`
+- `path_check_instructions` is a **dict keyed by path number as string** ("1", "2", etc.), NOT a single string
 - One query pack per career path (for JobSpy)
-- One prospecting path per career path (for web discovery)
+- One prospecting path per career path (for web discovery), numbered to match path_check_instructions keys
 - All regex patterns must be valid Python regex, no inline flags like `(?i)`
 - Minimum: 3+ paths, 3+ queries per pack, 5+ named targets per path, 10+ gold companies
+
+See `onboarding/references/example-output.md` for a complete working example.
 
 ### Step 5: Verify Setup
 
 Run smoke test checks **inline** (do not ask the user to run a separate command):
 
 1. Verify all 4 generated files exist and are non-empty
-2. Verify `search-config.json` parses as valid JSON
-3. Verify Python dependencies import (`yaml`, `requests`, `docx`, `openpyxl`)
-4. Verify `config.yaml` reads correctly via `scripts/config_loader.py`
+2. Run `uv run python3 scripts/smoke_test.py` and verify all checks pass (this validates search-config schema, query_packs is a dict, path_check_instructions is a dict, dependencies, and config.yaml)
 
 If all checks pass: "Setup complete."
 If any check fails: report the specific issue and fix it.

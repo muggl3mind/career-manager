@@ -104,7 +104,11 @@ def main():
         config = load_search_config(search_config)
         check("search-config.json validates", lambda: True if config else "Validation failed — re-run onboarding")
         if config:
-            check(f"query_packs: {len(config.get('query_packs', {}))} packs", lambda: True if config.get("query_packs") else "No query packs")
+            qp = config.get("query_packs", {})
+            check("query_packs is a dict (not list)", lambda: True if isinstance(qp, dict) else "query_packs must be a dict keyed by name, not a list — re-run onboarding")
+            check(f"query_packs: {len(qp)} packs", lambda: True if qp else "No query packs")
+            pci = config.get("path_check_instructions", {})
+            check("path_check_instructions is a dict", lambda: True if isinstance(pci, dict) else "path_check_instructions must be a dict keyed by path number, not a string — re-run onboarding")
             check(f"gold_companies: {len(config.get('gold_companies', []))} companies", lambda: True if config.get("gold_companies") else "No gold companies")
             pp = config.get("prospecting_paths", [])
             check(f"prospecting_paths: {len(pp)} paths", lambda: True if pp else "No prospecting paths — web prospecting won't work")
