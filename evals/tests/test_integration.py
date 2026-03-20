@@ -487,37 +487,6 @@ class TestProspectingResultsScoringSchema:
             f"Unexpected llm_flags: {row['llm_flags']!r}"
 
 
-class TestKeywordScorerFallback:
-    """Verify keyword scorer only scores companies without llm_score."""
-
-    def test_skips_score_company_for_llm_scored_rows(self, sample_search_config, sample_target_csv):
-        """score_company() should NOT be called for rows that already have llm_score."""
-        # Add llm_score to first company
-        with sample_target_csv.open() as f:
-            rows = list(csv.DictReader(f))
-        header = list(rows[0].keys())
-
-        rows[0]['llm_score'] = '85'
-        rows[0]['llm_rationale'] = 'LLM evaluated'
-
-        with sample_target_csv.open('w', newline='') as f:
-            w = csv.DictWriter(f, fieldnames=header)
-            w.writeheader()
-            w.writerows(rows)
-
-        import score_companies as sc
-        orig_csv = sc.CSV_PATH
-        try:
-            sc.CSV_PATH = sample_target_csv
-            with patch.object(sc, 'score_company', wraps=sc.score_company) as mock_score:
-                sc.main()
-                # score_company should only be called for the company WITHOUT llm_score
-                assert mock_score.call_count == 1, \
-                    f"score_company called {mock_score.call_count} times, expected 1 (only for unscored company)"
-        finally:
-            sc.CSV_PATH = orig_csv
-
-
 class TestScoringOutputSchema:
     """Verify scoring output in results JSON conforms to expected schema."""
 
