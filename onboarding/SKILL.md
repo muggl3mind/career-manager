@@ -163,6 +163,17 @@ Generate valid JSON matching this exact structure. **Pay close attention to type
     "role_keywords": {"keyword": 7},
     "comp_indicators": {"keyword": 5},
     "growth_indicators": {"keyword": 4}
+  },
+  "path_aliases": {
+    "fuzzy variant": "Exact Query Pack Label",
+    "another variant": "Exact Query Pack Label"
+  },
+  "company_path_overrides": {
+    "Company Name": "Career Path Label from query_packs"
+  },
+  "company_aliases": {
+    "variant name": "Canonical Name",
+    "another variant": "Canonical Name"
   }
 }
 ```
@@ -174,6 +185,16 @@ Generate valid JSON matching this exact structure. **Pay close attention to type
 - One prospecting path per career path (for web discovery), numbered to match path_check_instructions keys
 - All regex patterns must be valid Python regex, no inline flags like `(?i)`
 - Minimum: 3+ paths, 3+ queries per pack, 5+ named targets per path, 10+ gold companies
+
+**Scoring keywords:** Each scoring dict maps keyword strings to integer weights. Higher weights = stronger signal for that category. Generate weights based on how central each term is to the user's target roles.
+
+**Path aliases:** Map fuzzy LLM path variants to canonical query_pack labels. The LLM sometimes returns shortened or rephrased path names during evaluation. This map catches common variants so they normalize correctly. Generate 3-5 aliases per career path based on likely LLM rephrasings. Keys are lowercase variants, values are exact query_pack labels.
+
+**Company path overrides:** Map specific company names to career paths. Used when a company should always be classified under a specific path regardless of how it was discovered. Keys are company names (case-insensitive at runtime), values are query_pack labels. Generate these from the user's target companies in each career path.
+
+**Company aliases:** Map variant company names to their canonical form. Prevents duplicates when different sources use different names (e.g., "PwC Labs" -> "PwC", "Allvue" -> "Allvue Systems"). Generate initial aliases from the user's target companies that have known abbreviations or subsidiaries.
+
+These three fields are optional. If missing, the normalizer falls back to pass-through behavior.
 
 See `onboarding/references/example-output.md` for a complete working example.
 

@@ -185,6 +185,24 @@ ML teams at scale rather than building dashboards or ad-hoc analysis.
     "role_keywords": {"infrastructure": 7, "platform": 7, "MLOps": 8},
     "comp_indicators": {"senior": 5, "staff": 7, "principal": 8},
     "growth_indicators": {"series b": 4, "series c": 5, "ipo": 3}
+  },
+  "path_aliases": {
+    "ml infra": "ML Infrastructure & Platform Engineering",
+    "ml platform": "ML Infrastructure & Platform Engineering",
+    "data platform ml": "Data Platform with ML Focus",
+    "mlops": "MLOps & ML DevOps",
+    "ml devops": "MLOps & ML DevOps"
+  },
+  "company_path_overrides": {
+    "Databricks": "ML Infrastructure & Platform Engineering",
+    "Anyscale": "ML Infrastructure & Platform Engineering",
+    "Tecton": "Data Platform with ML Focus",
+    "Weights & Biases": "MLOps & ML DevOps",
+    "Netflix": "ML Infrastructure & Platform Engineering"
+  },
+  "company_aliases": {
+    "W&B": "Weights & Biases",
+    "wandb": "Weights & Biases"
   }
 }
 ```
