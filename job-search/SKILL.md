@@ -48,11 +48,11 @@ uv run job-search/scripts/ops/run_pipeline.py phase1 --skip-jobspy   # faster, s
 
 ## Agent Work — parallel sub-agent dispatch
 
-Use the **Agent tool** to launch **three sub-agents in parallel**. Each agent gets its own context window and writes its own result file. Do not run them sequentially.
+Use the **Agent tool** to launch **three sub-agents in parallel** — make three Agent tool calls in a single response so they run concurrently. Each agent gets its own context window and writes its own result file.
 
 **Location targeting (all agents):** Read `search_locations` from `data/search-config.json` to focus on companies hiring in those markets.
 
-**Scoring (monitor + prospecting agents):** Read `references/criteria.md`. Score each of the 10 dimensions 0-10. Total = sum (0-100). If fewer than 5 dimensions evaluable, set `llm_flags: "needs_research"` and skip scoring.
+**Scoring (all agents):** Read `references/criteria.md`. Score each of the 10 dimensions 0-10. Total = sum (0-100). If fewer than 5 dimensions evaluable, set `llm_flags: "needs_research"` and skip scoring.
 
 ### Monitor Agent
 
