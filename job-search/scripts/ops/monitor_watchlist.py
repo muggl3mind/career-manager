@@ -39,8 +39,10 @@ DEFAULT_STALE_DAYS = 7
 import sys as _sys
 _sys.path.insert(0, str(BASE / 'scripts' / 'core'))
 from search_config_loader import load_search_config
+from path_normalizer import normalize_path
 
 _SEARCH_CONFIG = load_search_config(DATA / 'search-config.json')
+_CANONICAL_PATHS = [v['label'] for v in _SEARCH_CONFIG['query_packs'].values()] if _SEARCH_CONFIG else []
 
 # Import from web_prospecting (which now loads from search-config.json)
 try:
@@ -96,15 +98,10 @@ def _sync_xlsx() -> None:
 def _sort_key(r: Dict) -> tuple:
     llm = r.get('llm_score')
     try:
-        llm_val = float(llm) if llm not in (None, '') else -1.0
+        llm_val = float(llm) if llm not in (None, '') else 0.0
     except (TypeError, ValueError):
-        llm_val = -1.0
-    try:
-        kw_val = float(r.get('numeric_score') or 0)
-    except (TypeError, ValueError):
-        kw_val = 0.0
-    tier_val = {'tier1_company_ats': 3, 'tier2_linkedin': 2}.get(r.get('source_tier', ''), 1)
-    return (llm_val if llm_val >= 0 else kw_val, kw_val, tier_val)
+        llm_val = 0.0
+    return (llm_val,)
 
 
 def _parse_dt(s: str) -> datetime | None:
@@ -186,18 +183,14 @@ def _build_company_registry(
             registry[key]['careers_url'] = registry[key]['careers_url'] or row.get('careers_url', '')
             registry[key]['current_status'] = row.get('validation_status', '')
             registry[key]['known_roles'] = row.get('open_positions', '')
-            if not registry[key].get('path'):
-                try:
-                    registry[key]['path'] = int(row.get('llm_path') or 0)
-                except (ValueError, TypeError):
-                    pass
-                registry[key]['path_name'] = row.get('llm_path_name', '')
+            if not registry[key].get('path_name'):
+                registry[key]['path_name'] = row.get('role_family', '')
         else:
             registry[key] = {
                 'company': name,
                 'website': row.get('website', ''),
-                'path': int(row.get('llm_path') or 0) if row.get('llm_path') else 0,
-                'path_name': row.get('llm_path_name', ''),
+                'path': 0,
+                'path_name': row.get('role_family', ''),
                 'source': 'target_list',
                 'current_status': row.get('validation_status', ''),
                 'known_roles': row.get('open_positions', ''),
@@ -315,7 +308,7 @@ def cmd_export(stale_days: int = DEFAULT_STALE_DAYS) -> int:
             '  "llm_score": 82,\n'
             '  "llm_dimensions_evaluated": 9,\n'
             '  "llm_rationale": "Strong fit. Comp data unavailable.",\n'
-            '  "llm_path_name": "Professional Services",\n'
+            '  "role_family": "Professional Services",\n'
             '  "llm_flags": "comp_unknown"\n'
             '}\n'
             '\n'
@@ -425,12 +418,15 @@ def cmd_merge(dry_run: bool = False) -> int:
                 existing_notes = row.get('notes', '')
                 row['notes'] = f"{existing_notes} | monitor {today}: {r['notes']}" if existing_notes else f"monitor {today}: {r['notes']}"
             # Copy LLM scoring fields (only if non-empty in result)
-            for field in ('llm_score', 'llm_rationale', 'llm_path_name', 'llm_flags', 'role_url'):
+            for field in ('llm_score', 'llm_rationale', 'llm_flags', 'role_url'):
                 val = str(r.get(field, '')).strip()
                 if val:
                     row[field] = val
             if r.get('llm_score'):
                 row['llm_evaluated_at'] = now_ts
+            path_val = str(r.get('role_family', '') or r.get('llm_path_name', '') or r.get('path_name', '')).strip()
+            if path_val:
+                row['role_family'] = path_val
             updated += 1
         else:
             # New company — add to target list
@@ -447,28 +443,22 @@ def cmd_merge(dry_run: bool = False) -> int:
                 'recent_funding': '',
                 'tech_signals': '',
                 'open_positions': open_positions or 'None — watch list',
-                'fit_score': 'Watch List' if is_watch else 'Monitored',
-                'fit_rationale': r.get('notes', ''),
                 'last_checked': today,
                 'notes': f'source=monitor | status={status}',
-                'numeric_score': '',
-                'score_breakdown': '',
-                'role_family': r.get('path_name', ''),
+                'role_family': r.get('role_family', '') or r.get('llm_path_name', '') or r.get('path_name', ''),
                 'source': 'monitor',
-                'source_tier': 'tier2_prospected',
                 'location_detected': '',
                 'validation_status': 'watch_list' if is_watch else 'pass',
                 'exclusion_reason': '',
                 'llm_score': str(r.get('llm_score', '')) if r.get('llm_score') is not None else '',
-                'llm_path': r.get('path', ''),
-                'llm_path_name': r.get('llm_path_name', '') or r.get('path_name', ''),
                 'llm_rationale': r.get('llm_rationale', ''),
                 'llm_flags': r.get('llm_flags', ''),
-                'llm_cv_template': '',
                 'llm_hard_pass': 'false',
                 'llm_hard_pass_reason': '',
                 'llm_evaluated_at': now_ts if r.get('llm_score') else '',
             }
+            if new_row.get('role_family'):
+                new_row['role_family'] = normalize_path(new_row['role_family'], _CANONICAL_PATHS)
             existing_rows.append(new_row)
             existing_by_name[key] = [len(existing_rows) - 1]
             added += 1
