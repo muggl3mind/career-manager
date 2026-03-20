@@ -35,9 +35,11 @@ import sys
 sys.path.insert(0, str(BASE / 'scripts' / 'core'))
 from search_config_loader import load_search_config
 from csv_schema import HEADER
+from path_normalizer import normalize_path
 
 _SEARCH_CONFIG = load_search_config(DATA / 'search-config.json')
 PROSPECTING_PATHS = _SEARCH_CONFIG.get('prospecting_paths', []) if _SEARCH_CONFIG else []
+_CANONICAL_PATHS = [v['label'] for v in _SEARCH_CONFIG['query_packs'].values()] if _SEARCH_CONFIG else []
 
 
 def _sync_xlsx() -> None:
@@ -80,15 +82,10 @@ def _save_seen(seen: Dict) -> None:
 def _sort_key(r: Dict) -> tuple:
     llm = r.get('llm_score')
     try:
-        llm_val = float(llm) if llm not in (None, '') else -1.0
+        llm_val = float(llm) if llm not in (None, '') else 0.0
     except (TypeError, ValueError):
-        llm_val = -1.0
-    try:
-        kw_val = float(r.get('numeric_score') or 0)
-    except (TypeError, ValueError):
-        kw_val = 0.0
-    tier_val = {'tier1_company_ats': 3, 'tier2_linkedin': 2}.get(r.get('source_tier', ''), 1)
-    return (llm_val if llm_val >= 0 else kw_val, kw_val, tier_val)
+        llm_val = 0.0
+    return (llm_val,)
 
 
 def cmd_export() -> int:
@@ -175,7 +172,7 @@ def cmd_export() -> int:
             'SCORING: For each company, evaluate against references/criteria.md rubric:\n'
             '- 10 yes/no/unknown dimensions. Score = (yes / evaluated) * 100.\n'
             '- If <5 dimensions assessable, flag as "needs_research" instead of scoring.\n'
-            '- Include llm_score, llm_dimensions_evaluated, llm_rationale, llm_path_name, llm_flags in each result.\n'
+            '- Include llm_score, llm_dimensions_evaluated, llm_rationale, role_family, llm_flags in each result.\n'
             'Write ALL results to data/prospecting-results.json as a JSON array.'
         ),
         'named_targets_mandatory_check': all_named_targets,
@@ -200,7 +197,6 @@ def cmd_export() -> int:
             'llm_score': 'Integer 0-100: (yes dimensions / evaluated dimensions) * 100',
             'llm_dimensions_evaluated': 'How many of 10 dimensions you could assess',
             'llm_rationale': '1-2 sentence fit summary from criteria.md evaluation',
-            'llm_path_name': 'Career path name from criteria.md',
             'llm_flags': 'Comma-separated: comp_unknown, growth_unknown, needs_research, etc.',
         },
     }
@@ -271,10 +267,13 @@ def cmd_merge(dry_run: bool = False) -> int:
                         if row.get('validation_status') == 'watch_list':
                             row['validation_status'] = 'pass'
                         # Copy LLM scoring fields (only if non-empty)
-                        for field in ('llm_score', 'llm_rationale', 'llm_path_name', 'llm_flags', 'role_url'):
+                        for field in ('llm_score', 'llm_rationale', 'llm_flags', 'role_url'):
                             val = str(r.get(field, '')).strip()
                             if val:
                                 row[field] = val
+                        path_val = str(r.get('role_family', '') or r.get('llm_path_name', '') or r.get('path_name', '')).strip()
+                        if path_val:
+                            row['role_family'] = path_val
                         if r.get('llm_score'):
                             row['llm_evaluated_at'] = now_ts
                         updated_existing += 1
@@ -292,14 +291,10 @@ def cmd_merge(dry_run: bool = False) -> int:
         if is_watch_list:
             watch_list_count += 1
             validation_status = 'watch_list'
-            fit_score = 'Watch List'
-            numeric_score = ''
             open_positions = open_positions or 'None — watch list'
         else:
             active_role_count += 1
             validation_status = 'pass'
-            fit_score = 'Prospected'
-            numeric_score = ''
 
         row = {
             'rank': '',
@@ -313,29 +308,23 @@ def cmd_merge(dry_run: bool = False) -> int:
             'recent_funding': r.get('recent_funding', ''),
             'tech_signals': r.get('tech_signals', ''),
             'open_positions': open_positions,
-            'fit_score': fit_score,
-            'fit_rationale': r.get('fit_rationale', ''),
             'last_checked': today,
             'notes': r.get('notes', '') + f' | source=web_prospecting | status={prospect_status}',
-            'numeric_score': numeric_score,
-            'score_breakdown': '',
-            'role_family': r.get('path_name', ''),
+            'role_family': r.get('role_family', '') or r.get('llm_path_name', '') or r.get('path_name', ''),
             'source': 'web_prospecting',
-            'source_tier': 'tier2_prospected',
             'location_detected': '',
             'validation_status': validation_status,
             'exclusion_reason': '',
             'llm_score': str(r.get('llm_score', '')) if r.get('llm_score') is not None else '',
-            'llm_path': r.get('path', ''),
-            'llm_path_name': r.get('llm_path_name', '') or r.get('path_name', ''),
             'llm_rationale': r.get('llm_rationale', '') or r.get('fit_rationale', ''),
             'llm_flags': r.get('llm_flags', ''),
-            'llm_cv_template': '',
             'llm_hard_pass': 'false',
             'llm_hard_pass_reason': '',
             'llm_evaluated_at': now_ts if r.get('llm_score') else '',
         }
         new_rows.append(row)
+        if row.get('role_family'):
+            row['role_family'] = normalize_path(row['role_family'], _CANONICAL_PATHS)
 
         # Update seen-companies cache
         seen[name_key] = {
