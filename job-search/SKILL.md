@@ -20,7 +20,6 @@ The script folder is now decomposed by responsibility:
 | Script | What It Does |
 |--------|--------------|
 | `scripts/core/send_email.py` | Gmail API sender (OAuth2, addresses configured in `config.yaml`) |
-| `scripts/core/score_companies.py` | Weighted 6-factor company scoring |
 | `scripts/core/todoist_client.py` | Todoist API client wrapper |
 | `scripts/core/cv_index_resolver.py` | Portable CV index path resolution |
 Note: `tracker_commands.py` and `add_to_tracker.py` moved to `../job-tracker/scripts/`
@@ -67,7 +66,7 @@ When visiting each company, also evaluate it against your `references/criteria.m
    - `llm_score`: integer 0-100
    - `llm_dimensions_evaluated`: how many of 10 you could assess
    - `llm_rationale`: 1-2 sentence fit summary
-   - `llm_path_name`: which career path this company maps to
+   - `role_family`: which career path this company maps to
    - `llm_flags`: comma-separated flags (e.g. `comp_unknown,growth_unknown`)
    - `dimension_scores`: (recommended) object with per-dimension results, e.g. `{"domain_fit": true, "ai_centrality": true, "comp_path": null}`
 
@@ -158,8 +157,7 @@ New columns added to `target-companies.csv`:
 | Column | Description |
 |--------|-------------|
 | `llm_score` | LLM fit score 0–100 (sum of 10 rubric scores) |
-| `llm_path` | Target path 1–8 |
-| `llm_path_name` | Path label |
+| `role_family` | Path label |
 | `llm_rationale` | 2–3 sentence fit explanation |
 | `llm_flags` | Pipe-separated red flags |
 | `llm_hard_pass` | true = excluded |
@@ -224,7 +222,7 @@ Write ALL results (with and without open roles) to `data/prospecting-results.jso
     "llm_score": 91,
     "llm_dimensions_evaluated": 10,
     "llm_rationale": "Perfect domain fit. AI-central product. PM role matches targets. Strong funding.",
-    "llm_path_name": "AI Industry Startup",
+    "role_family": "AI Industry Startup",
     "llm_flags": ""
   },
   {
@@ -246,7 +244,7 @@ Write ALL results (with and without open roles) to `data/prospecting-results.jso
     "llm_score": 65,
     "llm_dimensions_evaluated": 7,
     "llm_rationale": "Good domain fit but early stage, no relevant role open. AI centrality unclear.",
-    "llm_path_name": "AI Industry Startup",
+    "role_family": "AI Industry Startup",
     "llm_flags": "comp_unknown,ai_centrality_unknown,no_open_role"
   }
 ]
@@ -303,7 +301,7 @@ Write ALL results to `data/monitor-results.json` as a JSON array:
     "llm_score": 82,
     "llm_dimensions_evaluated": 9,
     "llm_rationale": "Strong domain fit, AI practice growing. Comp data unavailable.",
-    "llm_path_name": "Professional Services",
+    "role_family": "Professional Services",
     "llm_flags": "comp_unknown"
   },
   {
