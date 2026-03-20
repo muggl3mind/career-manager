@@ -61,10 +61,15 @@ User says: "research [company]", "look into [company]", "what do you know about 
 5. Company careers page (for role details)
 6. target-companies.csv (for existing research)
 
-## Integration
-- After research: update target-companies.csv with findings
-- If PURSUE: prompt to add to applications.csv via job-tracker
-- Save dossier to company-research/dossiers/[company].md
+## After Research
+
+These steps happen automatically after every dossier. Do not ask the user.
+
+1. Save dossier to `company-research/dossiers/[company].md`
+2. Update `job-search/data/target-companies.csv` with findings (fit_score, fit_rationale, industry, size, stage, recent_funding, tech_signals)
+3. If recommendation is PURSUE, suggest: "Want me to tailor your CV for [role] at [company]?"
+4. If recommendation is RESEARCH MORE, suggest: "Want me to dig deeper on [specific gap]?"
+5. If recommendation is PASS, no suggestion needed.
 
 ## Rules
 - ALWAYS use this exact structure — no freestyling

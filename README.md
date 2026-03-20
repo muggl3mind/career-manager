@@ -4,6 +4,23 @@ An AI-assisted career management system built as a set of Claude Code skills. Or
 
 > **Note:** This is a personal productivity tool shared for inspiration and adaptation, not a production service.
 
+## Demo
+
+> **Watch:** Short walkthrough of the full pipeline from onboarding to dashboard.
+
+<!-- TODO: Replace with actual video embed/link after recording -->
+<!-- ![Demo Video](assets/demo/demo-thumbnail.png) -->
+
+[Video coming soon]
+
+## Getting Started
+
+1. Install [Claude Code](https://claude.ai/code)
+2. Install Python 3.13+ and [uv](https://docs.astral.sh/uv/)
+3. Paste this repo's URL into Claude Code and say: **"Set up the requirements and start onboarding"**
+
+---
+
 ## Prerequisites
 
 - **Python 3.13+** — [Download Python](https://www.python.org/downloads/)
@@ -14,10 +31,6 @@ An AI-assisted career management system built as a set of Claude Code skills. Or
   ```
   Full setup guide: [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code/overview)
 - (Optional) **[python-jobspy](https://github.com/Bunsly/JobSpy)** — scrapes job boards (LinkedIn, Indeed) for open roles. Included in `requirements.txt` but may not always work reliably as it depends on job board access. The pipeline works fine without it — Claude discovers companies through web search instead. You can disable it in `config.yaml` with `jobspy_enabled: false`.
-- (Optional) Gmail OAuth credentials for email notifications
-- (Optional) Todoist API token for task sync
-- (Optional) Tavily API key for direct job posting links (see below)
-
 ## Setup
 
 1. Clone this repo and install dependencies:
@@ -33,7 +46,7 @@ An AI-assisted career management system built as a set of Claude Code skills. Or
 
 2. Configure Claude Code permissions: the repo includes a working `.claude/settings.local.json` with default permissions already set. You can customize it as needed to add or remove allowed domains.
 
-2. Start Claude Code in this directory:
+3. Start Claude Code in this directory:
 
    ```bash
    cd career-manager
@@ -80,48 +93,6 @@ This pipeline runs through [Claude Code](https://docs.anthropic.com/en/docs/clau
 | Run a health check | *"Run the pipeline health check"* |
 
 You don't need to memorize commands. Just describe what you need and Claude will route to the right skill.
-
-### Optional: Create Slash Commands
-
-You can set up slash commands so typing `/job-search` or `/onboarding` invokes a skill directly. Create a `.claude/commands/` directory and add a markdown file for each command:
-
-```bash
-mkdir -p .claude/commands
-```
-
-For example, to create a `/job-search` command:
-
-```bash
-cat > .claude/commands/job-search.md << 'EOF'
-Read job-search/SKILL.md and follow the "Full Pipeline Run" instructions.
-EOF
-```
-
-Other useful commands:
-
-```bash
-# /onboarding
-echo 'Read onboarding/SKILL.md and follow the onboarding flow.' > .claude/commands/onboarding.md
-
-# /research
-echo 'Read company-research/SKILL.md. Research the company: $ARGUMENTS' > .claude/commands/research.md
-
-# /tailor-cv
-echo 'Read cv-tailor/SKILL.md. Tailor my CV for: $ARGUMENTS' > .claude/commands/tailor-cv.md
-
-# /tracker
-echo 'Read job-tracker/SKILL.md. $ARGUMENTS' > .claude/commands/tracker.md
-```
-
-Then in Claude Code, type `/job-search` or `/research Stripe` to invoke them.
-
-### Optional: Tavily Integration
-
-For direct links to specific job postings (instead of generic careers pages), enable [Tavily](https://tavily.com) (free tier: 1,000 credits/month):
-
-1. Sign up at [tavily.com](https://tavily.com) and get an API key
-2. Save it as `.credentials/tavily-token.json`: `{"api_key": "tvly-your-key"}`
-3. Set `tavily_enabled: true` in `config.yaml`
 
 ## Skills Overview
 
@@ -179,6 +150,35 @@ See `examples/` for anonymized sample CSVs that demonstrate the data schema.
 - **Scoring weights**: Adjust the 10-dimension rubric in `job-search/references/criteria.md`
 - **Email templates**: Customize templates in `job-search/templates/`
 
+## Optional Integrations
+
+These integrations are disabled by default. Enable them in `config.yaml` when you're ready.
+
+### Gmail (email digests)
+
+Send yourself daily email digests with new job discoveries.
+
+1. Set up Gmail OAuth credentials ([guide](https://developers.google.com/gmail/api/quickstart/python))
+2. Save token as `.credentials/gmail-token.pickle`
+3. Set `gmail_enabled: true` in `config.yaml`
+4. Add your email addresses under `email:` in `config.yaml`
+
+### Todoist (task sync)
+
+Sync completed applications to Todoist for tracking.
+
+1. Get an API token from [Todoist Integrations](https://todoist.com/app/settings/integrations)
+2. Save as `.credentials/todoist-token.json`: `{"token": "your-token"}`
+3. Set `todoist_enabled: true` in `config.yaml`
+
+### Tavily (job posting links)
+
+Get direct links to specific job postings instead of generic careers pages. Free tier: 1,000 credits/month.
+
+1. Sign up at [tavily.com](https://tavily.com) and get an API key
+2. Save as `.credentials/tavily-token.json`: `{"api_key": "tvly-your-key"}`
+3. Set `tavily_enabled: true` in `config.yaml`
+
 ## Architecture
 
 Each skill owns its data and exposes clear interfaces:
@@ -189,7 +189,3 @@ Each skill owns its data and exposes clear interfaces:
 - `cv-tailor/data/CV/[company]/` — Per-company tailored materials
 
 See `references/ownership-matrix.md` for the full ownership map.
-
-## Acknowledgments
-
-- [JobSpy](https://github.com/Bunsly/JobSpy) — job board scraping engine powering the discovery pipeline

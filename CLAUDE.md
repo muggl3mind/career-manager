@@ -29,6 +29,10 @@ SKILL.md files use paths relative to their skill directory. Always prefix with t
 
 If `config.yaml` or `search-config.json` don't exist, run the onboarding skill first. See README for full setup steps.
 
+## Status Briefing
+
+Before running workflows, the router calls `scripts/generate_briefing.py` for a status snapshot. This is automatic. Do not ask the user to run it.
+
 ## Testing
 
 ```bash

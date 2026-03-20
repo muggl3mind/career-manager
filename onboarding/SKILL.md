@@ -1,6 +1,6 @@
 ---
 name: onboarding
-description: "Set up your personalized career-manager pipeline. Reads your resume, asks 3 targeted questions, then generates all config files so the pipeline is ready to run. Use when first setting up the pipeline or when your career goals change."
+description: "Set up your personalized career-manager pipeline. Reads your resume, asks 1 question, then generates all config files so the pipeline is ready to run. Use when first setting up the pipeline or when your career goals change."
 ---
 
 # Onboarding
@@ -15,74 +15,86 @@ Personalize the career-manager pipeline for a new user through a focused setup.
 
 ## Flow
 
-### Step 1: Check for Master CV
+### Step 1: Get the Resume
 
-Check `cv-tailor/data/CV/Master CV/` for a `.docx` or `.pdf` file.
+Ask: "Where's your resume? Give me the file path (e.g., ~/Desktop/resume.docx)"
 
-**If found:** Read the resume and extract:
-- Work history (roles, companies, years, industries)
-- Skills (technical and domain)
-- Education and certifications
-- Key accomplishments
+When the user provides a path:
+1. Verify the file exists and is `.docx` or `.pdf`
+2. Copy it to `cv-tailor/data/CV/Master CV/` (create directory if needed)
+3. Read the resume and extract: work history, skills, industries, seniority, education, accomplishments
 
-Present a summary: "Here's what I gathered from your resume: [summary]. Anything to correct or add?"
+If the file doesn't exist or isn't a supported format, ask again with guidance.
 
-**If not found:** Tell the user: "Drop your resume (.docx or .pdf) into `cv-tailor/data/CV/Master CV/` and re-run onboarding. The resume is needed to generate accurate search queries and scoring criteria."
+**Do NOT ask the user to copy files manually.** You handle the copy.
 
-### Step 2: Three Questions
+### Step 2: One Question
 
-Ask these three questions **one at a time, sequentially**:
+Ask this single combined question:
 
-1. "What roles are you targeting? Be specific about seniority (Associate, Manager, Director, VP) and industry. **Tip:** 'Senior Product Manager, fintech/accounting SaaS' will get you much better results than just 'Product Manager.'"
-2. "What's your target salary range?"
-3. "What's your willingness to travel? (e.g., fully remote, hybrid, open to relocation, X% travel)"
+"Based on your resume, I can see your background. I need three things your resume doesn't tell me:
 
-### Step 3: Generate Files
+1. **Target roles** - What roles are you going after? Be specific about seniority (Senior PM, Director of Engineering, Solutions Architect) and domain.
+2. **Salary floor** - What's the minimum base salary you'd accept?
+3. **Location** - Remote, hybrid, or onsite? Open to relocation?"
 
-After the questions, generate all files. Warn before overwriting any existing files.
+### Step 3: Confirm Profile
 
-**IMPORTANT:** Before writing each file, you MUST read the existing file first (even if it's a template placeholder). Claude Code's Write tool requires reading before overwriting. If the file doesn't exist yet, create the parent directory with Bash (`mkdir -p`) first, then use Write.
+Present the full profile combining resume inference + user answers:
+
+"Here's your profile:
+
+**Background:** [inferred from resume - key roles, industries, years of experience, strongest skills]
+**Target roles:** [from answer]
+**Salary floor:** [from answer]
+**Location:** [from answer]
+**Career paths I'd search:** [3-8 paths derived from background + targets]
+
+Anything you'd change?"
+
+Wait for confirmation. If the user tweaks anything, update and re-confirm.
+
+### Step 4: Generate Files
+
+After confirmation, generate all files **silently**. No overwrite warnings. No "about to write..." messages. Just write them.
+
+**IMPORTANT:** Before writing each file, read the existing file first (Write tool requirement). Do this silently. Do NOT tell the user you're reading before writing. Do NOT warn about overwriting.
 
 **Never touch pipeline data files** (target-companies.csv, applications.csv, etc.).
 
-#### File 1: `job-search/references/criteria.md`
+#### File 1: `config.yaml`
+
+Generate from `config.yaml.example` template with:
+- `paths.cv_base` set to the directory where the user's resume was found (parent of the file they provided)
+- All integrations set to `false`
+- Email fields left as placeholders
+
+#### File 2: `job-search/references/criteria.md`
 
 Generate with this structure:
 
 ```
 ## Unique Value Proposition
-[2-3 paragraphs: what makes this person uniquely valuable, derived from their background + non-obvious angle]
+[2-3 paragraphs: what makes this person uniquely valuable]
 
 ## Target Roles
-[Role categories with descriptions, from question 1]
+[Role categories with descriptions]
 
 ## Target Company Types
-[3-8 career paths based on user's breadth. Each path has:]
+[3-8 career paths. Each path has:]
 ### Path N: [Path Name]
 - **Description:** [What kind of companies]
 - **Example Companies:** [Named targets]
 - **Role Types:** [Specific roles that fit]
-- **Why You Fit:** [Connection to user's background]
-- **Compensation Notes:** [Range based on user's target from question 2]
+- **Why You Fit:** [Connection to background]
+- **Compensation Notes:** [Range based on salary floor]
 
 ## Evaluation Framework
-[10 personalized yes/no scoring dimensions, generated fresh]
+[10 personalized yes/no scoring dimensions]
 
-### Group 1: Core Fit
-1. [Dimension based on user's domain expertise]
-2. [Dimension based on role alignment]
-3. [Dimension based on influence/autonomy needs]
-4. [Dimension based on culture/background fit]
-
-### Group 2: Compensation & Career
-5. [Dimension using user's stated comp target]
-6. [Dimension about growth trajectory]
-7. [Dimension about funding/stability]
-
-### Group 3: Culture & Growth
-8. [Dimension about problem excitement]
-9. [Dimension about visibility/voice]
-10. [Dimension about unique leverage]
+### Group 1: Core Fit (4 dimensions)
+### Group 2: Compensation & Career (3 dimensions)
+### Group 3: Culture & Growth (3 dimensions)
 
 ## Scoring Guide
 - 9-10 yes = Pursue aggressively
@@ -90,134 +102,96 @@ Generate with this structure:
 - 5-6 yes = Moderate fit, consider or watchlist
 - <4 yes = Skip
 
-**Handling unknowns:** When a dimension can't be assessed (e.g., comp data unavailable for a stealth startup), mark it as unknown rather than no. Score = (yes count / evaluated count) * 100 — unknowns don't count against the company. If fewer than 5 dimensions can be evaluated, flag the company as "needs_research" instead of assigning a score.
-
-## Reference Background
-[Condensed professional summary for Claude to reference during evaluation]
+**Handling unknowns:** Mark as unknown rather than no. Score = (yes count / evaluated count) * 100. If fewer than 5 dimensions evaluable, flag as "needs_research".
 ```
 
-#### File 2: `job-search/references/background-context.md`
+#### File 3: `job-search/references/background-context.md`
 
 Generate with this structure:
 
 ```
 ## Personal Information
-[Name, location, links — as provided]
-
 ## Technical Capabilities
-[Skills organized by category]
-
 ## Project Portfolio
-[If mentioned — key projects with impact]
-
 ## Professional Experience
-[Roles, companies, years, key accomplishments]
-
 ## Education & Certifications
-[Degrees, certifications, relevant training]
-
 ## Positioning Angles
-[3-6 angles: the narratives that make this person compelling]
-
 ## Travel & Location Preferences
-[From question 3 — willingness to travel, remote/hybrid/onsite preferences]
 ```
 
-#### File 3: `job-search/data/search-config.json`
+#### File 4: `job-search/data/search-config.json`
 
-Generate valid JSON matching this schema:
+Generate valid JSON matching this exact structure. **Pay close attention to types. `query_packs` and `path_check_instructions` are dicts, not lists.**
 
 ```json
 {
   "query_packs": {
-    "<snake_case_key>": {
-      "label": "Human-readable path name",
-      "queries": ["6-12 job board search queries"]
+    "<snake_case_path_key>": {
+      "label": "Human-Readable Path Name",
+      "queries": ["search query 1", "search query 2", "..."],
+      "locations": ["Remote", "United States"],
+      "job_type": "fulltime"
     }
   },
-  "role_include_patterns": ["15-25 regex patterns for target role titles"],
-  "role_exclude_patterns": ["5-15 regex patterns for roles to reject"],
-  "employer_exclude_patterns": ["patterns for employer types to skip"],
-  "location_exclude_patterns": ["patterns for locations outside target geography"],
-  "role_rescue_keywords": ["keywords that rescue borderline titles from exclusion"],
+  "role_include_patterns": ["regex_pattern", "..."],
+  "role_exclude_patterns": ["regex_pattern", "..."],
+  "employer_exclude_patterns": ["regex_pattern", "..."],
+  "location_exclude_patterns": ["regex_pattern", "..."],
   "keywords": {
-    "domain": ["industry terms"],
-    "ai": ["AI/ML terms"],
-    "tech": ["technical skills"]
+    "domain": ["keyword", "..."],
+    "ai": ["keyword", "..."],
+    "tech": ["keyword", "..."]
   },
-  "gold_companies": ["20-40 named target companies, lowercase"],
+  "gold_companies": ["Company Name", "..."],
   "prospecting_paths": [
     {
       "path": 1,
-      "name": "Career path name (matches criteria.md paths)",
-      "search_queries": ["2-4 web search queries for finding new companies in this path"],
-      "named_targets": ["5-15 specific company names to monitor"],
-      "new_targets_goal": 2
+      "name": "Path Name",
+      "search_queries": ["web search query", "..."],
+      "named_targets": ["Company", "..."],
+      "new_targets_goal": 3
     }
   ],
   "path_check_instructions": {
-    "1": "Instructions for Claude when checking this path's companies for open roles"
+    "1": "Instructions for path 1 search...",
+    "2": "Instructions for path 2 search..."
   },
-  "role_patterns": ["role title keywords for monitoring (e.g., product manager, solutions architect)"],
+  "role_patterns": ["human-readable role title", "..."],
   "scoring": {
-    "domain_keywords": {"keyword": 10, "another_keyword": 8},
-    "ai_keywords": {"ai": 6, "llm": 8, "machine learning": 7},
-    "role_keywords": {"target role title": 10, "another role": 8},
-    "comp_indicators": {"series c": 7, "public": 8, "$150k": 10},
-    "growth_indicators": {"series b": 8, "hypergrowth": 9, "raised": 6},
-    "culture_keywords": {
-      "remote_flexible": ["remote", "distributed", "flexible"],
-      "innovation": ["innovation", "builder", "startup", "open source"],
-      "technical": ["product-led", "engineer", "technical"]
-    }
+    "domain_keywords": {"keyword": 8},
+    "ai_keywords": {"keyword": 6},
+    "role_keywords": {"keyword": 7},
+    "comp_indicators": {"keyword": 5},
+    "growth_indicators": {"keyword": 4}
   }
 }
 ```
 
-**Query generation rules:**
-- One query pack per career path from criteria.md (for JobSpy board scraping)
-- One prospecting path per career path (for web-based company discovery)
-- Each query: concrete search string (e.g., "product manager ai accounting software")
-- Mix company-specific queries with generic ones
-- All regex patterns must be valid Python regex. Do NOT use inline flags like `(?i)` — the pipeline adds case-insensitivity automatically
-- `named_targets`: specific companies the user wants to track — derived from career paths in criteria.md
-- `path_check_instructions`: tell Claude what role types to look for when visiting each path's company careers pages
-- `role_patterns`: general role keywords used across all paths for monitoring
+**Critical rules:**
+- `query_packs` is a **dict keyed by snake_case name**, NOT a list. Each value has `label`, `queries`, `locations`, `job_type`
+- `path_check_instructions` is a **dict keyed by path number as string** ("1", "2", etc.), NOT a single string
+- One query pack per career path (for JobSpy)
+- One prospecting path per career path (for web discovery), numbered to match path_check_instructions keys
+- All regex patterns must be valid Python regex, no inline flags like `(?i)`
+- Minimum: 3+ paths, 3+ queries per pack, 5+ named targets per path, 10+ gold companies
 
-**Scoring keywords:** The `scoring` section powers the keyword-based company scorer. Generate weighted keywords (0-10 scale) based on the user's profile:
-- `domain_keywords`: industry terms from their background. Higher weight = stronger signal of fit.
-- `ai_keywords`: AI/ML terms relevant to their target roles.
-- `role_keywords`: their target job titles with weights.
-- `comp_indicators`: company traits that signal target compensation.
-- `growth_indicators`: signals of company growth trajectory.
-- `culture_keywords`: grouped keywords for culture fit scoring.
+See `onboarding/references/example-output.md` for a complete working example.
 
-**Minimum viable output:**
-- 3+ career paths / query packs / prospecting paths
-- 3+ queries per pack
-- 5+ named targets per prospecting path
-- 5+ role include patterns
-- 3+ role exclude patterns
-- 10+ gold companies
-- 10+ role patterns
+### Step 5: Verify Setup
 
-#### File 4: `config.yaml`
+Run smoke test checks **inline** (do not ask the user to run a separate command):
 
-Ask the user:
-- CV base path (default: `cv-tailor/data/CV/`)
-- Which integrations to enable (default: all disabled for new users):
-  - **JobSpy** — scrapes job boards (Indeed, LinkedIn) for open roles
-  - **Todoist** — syncs completed tasks to Todoist for tracking
-  - **Gmail** — sends daily digest emails with new job discoveries
+1. Verify all 4 generated files exist and are non-empty
+2. Run `uv run python3 scripts/smoke_test.py` and verify all checks pass (this validates search-config schema, query_packs is a dict, path_check_instructions is a dict, dependencies, and config.yaml)
 
-Use `config.yaml.example` as the template. Use defaults for fields not asked about.
+If all checks pass: "Setup complete."
+If any check fails: report the specific issue and fix it.
 
-### Step 4: Report
+### Step 6: Offer First Search
 
-After generating all files, report:
-- Which files were created/overwritten
-- Summary of career paths generated
-- Next steps: "Your pipeline is ready. Run the job-search skill to start discovering companies."
+"Want me to find your first companies? I'll search across your career paths and score what I find."
+
+If yes, hand off to job-search skill.
 
 ## Re-run Behavior
 
@@ -228,6 +202,6 @@ If the user has already run onboarding (files exist):
 
 ## Boundaries
 
-- This skill generates config files only — it does not run the pipeline
-- It does not modify pipeline scripts (that's a code change, not onboarding)
-- It does not create or modify the Master CV — user provides their own
+- This skill generates config files only. It does not run the pipeline.
+- It does not modify pipeline scripts.
+- It does not create or modify the Master CV content. It only copies the user's file.
