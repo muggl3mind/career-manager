@@ -120,7 +120,6 @@ def main():
     sys.path.insert(0, str(PROJECT_ROOT / "job-search" / "scripts" / "ops"))
 
     for mod_name in [
-        "score_companies",
         "web_prospecting",
         "monitor_watchlist",
         "run_pipeline",
