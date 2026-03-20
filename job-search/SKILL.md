@@ -120,7 +120,39 @@ Run immediately after Phase 2. Do not ask user.
 ```
 uv run job-search/scripts/ops/run_pipeline.py phase3
 ```
-Overwrites `data/action-list.csv`. After completion, read it, identify top 3 companies, and suggest: "Top 3 are [names]. Want me to research them?"
+Overwrites `data/action-list.csv`.
+
+**Next step — Dashboard + action menu:**
+
+After phase 3 completes:
+
+1. Open the dashboard in the user's browser:
+   ```
+   open job-search/data/dashboard.html
+   ```
+
+2. Present the action menu:
+   ```
+   Pipeline complete! Dashboard opened in your browser.
+
+   What would you like to do next?
+     1. Research a specific company
+     2. Tailor CV for a role
+     3. Start an application
+     4. Run another pipeline
+     5. Done for now
+
+   Pick a number:
+   ```
+
+3. Route based on selection:
+   - **1** — Ask which company, then invoke company-research skill
+   - **2** — Ask which role/company, then invoke cv-tailor skill
+   - **3** — Ask which company/role, then invoke job-tracker skill
+   - **4** — Ask which pipeline (monitor, prospecting, full), then re-run
+   - **5** — End the workflow
+
+After completing any action (1-4), return to the menu so the user can take multiple actions without restarting.
 
 ---
 
