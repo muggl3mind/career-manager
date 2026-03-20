@@ -7,9 +7,9 @@ paths:
 
 integrations:
   # Set to false to skip Todoist sync (pipeline continues without it)
-  todoist_enabled: false
+  todoist_enabled: true
   # Set to false to skip email sends
-  gmail_enabled: false
+  gmail_enabled: true
   # Set to false to skip JobSpy scraping (uses cached data instead)
   jobspy_enabled: true
   # Set to true to use Tavily for direct role posting links (free tier: 1000 credits/month)

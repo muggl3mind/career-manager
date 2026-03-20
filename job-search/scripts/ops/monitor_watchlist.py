@@ -39,7 +39,8 @@ DEFAULT_STALE_DAYS = 7
 import sys as _sys
 _sys.path.insert(0, str(BASE / 'scripts' / 'core'))
 from search_config_loader import load_search_config
-from path_normalizer import normalize_path
+from path_normalizer import normalize_path, infer_path_for_company, normalize_company
+from company_dedup import find_existing, merge_into_existing
 
 _SEARCH_CONFIG = load_search_config(DATA / 'search-config.json')
 _CANONICAL_PATHS = [v['label'] for v in _SEARCH_CONFIG['query_packs'].values()] if _SEARCH_CONFIG else []
@@ -203,7 +204,7 @@ def _build_company_registry(
         name = (row.get('company') or '').strip()
         key = name.lower()
         status = (row.get('status') or '').strip().lower()
-        if not key or status in ('rejected', 'closed'):
+        if not key:
             continue
         if key in registry:
             registry[key]['app_status'] = status
@@ -274,8 +275,11 @@ def cmd_export(stale_days: int = DEFAULT_STALE_DAYS) -> int:
         else:
             fresh.append(info)
 
-    # Sort stale: never-checked first, then oldest first
-    stale.sort(key=lambda x: (x['last_checked'] or '', x['company'].lower()))
+    # Sort stale: applied companies first, then never-checked, then oldest
+    def _stale_sort(x):
+        is_applied = x.get('app_status', '') == 'applied'
+        return (0 if is_applied else 1, x['last_checked'] or '', x['company'].lower())
+    stale.sort(key=_stale_sort)
 
     context = {
         'mode': 'monitor',
@@ -354,19 +358,12 @@ def cmd_merge(dry_run: bool = False) -> int:
     today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     now_ts = datetime.now(timezone.utc).isoformat()
 
-    # Index existing rows by lowercase company name (list of indices for duplicates)
-    existing_by_name: Dict[str, list] = {}
-    for i, row in enumerate(existing_rows):
-        name = (row.get('company') or '').strip().lower()
-        if name:
-            existing_by_name.setdefault(name, []).append(i)
-
     updated = 0
     added = 0
     no_change = 0
 
     for r in results:
-        company = (r.get('company') or '').strip()
+        company = normalize_company((r.get('company') or '').strip())
         key = company.lower()
         website = (r.get('website') or '').strip()
         status = (r.get('status') or 'no_change').strip()
@@ -386,47 +383,35 @@ def cmd_merge(dry_run: bool = False) -> int:
                 'path': r.get('path'),
             }
 
+        match = find_existing(company, existing_rows)
+
         if status == 'no_change':
-            # Just update last_checked on all matching rows
-            if key in existing_by_name:
-                for idx in existing_by_name[key]:
-                    existing_rows[idx]['last_checked'] = today
+            if match:
+                match['last_checked'] = today
             no_change += 1
             continue
 
-        if key in existing_by_name:
-            # Update all existing rows for this company
-            for idx in existing_by_name[key]:
-                row = existing_rows[idx]
-                row['last_checked'] = today
-            # Apply role/status updates to the first row
-            row = existing_rows[existing_by_name[key][0]]
-            if open_positions:
-                existing_open = (row.get('open_positions') or '').strip()
-                # Replace if it was a placeholder or empty
-                if not existing_open or existing_open.lower() in (
-                    'none — watch list', 'none', 'n/a', 'tbd', 'check careers'
-                ):
-                    row['open_positions'] = open_positions
-                elif open_positions.lower() not in existing_open.lower():
-                    row['open_positions'] = f"{existing_open}; {open_positions}"
-            if careers_url and not row.get('careers_url'):
-                row['careers_url'] = careers_url
-            if status == 'active_role' and row.get('validation_status') == 'watch_list':
-                row['validation_status'] = 'pass'
-            if r.get('notes'):
-                existing_notes = row.get('notes', '')
-                row['notes'] = f"{existing_notes} | monitor {today}: {r['notes']}" if existing_notes else f"monitor {today}: {r['notes']}"
-            # Copy LLM scoring fields (only if non-empty in result)
-            for field in ('llm_score', 'llm_rationale', 'llm_flags', 'role_url'):
-                val = str(r.get(field, '')).strip()
-                if val:
-                    row[field] = val
+        if match:
+            # Merge new data into existing row
+            merge_data = {
+                'open_positions': open_positions,
+                'llm_score': str(r.get('llm_score', '')) if r.get('llm_score') is not None else '',
+                'llm_rationale': r.get('llm_rationale', ''),
+                'llm_flags': r.get('llm_flags', ''),
+                'role_url': r.get('role_url', ''),
+                'careers_url': careers_url,
+                'role_family': r.get('role_family', '') or r.get('llm_path_name', '') or r.get('path_name', ''),
+                'last_checked': today,
+            }
             if r.get('llm_score'):
-                row['llm_evaluated_at'] = now_ts
-            path_val = str(r.get('role_family', '') or r.get('llm_path_name', '') or r.get('path_name', '')).strip()
-            if path_val:
-                row['role_family'] = path_val
+                merge_data['llm_evaluated_at'] = now_ts
+            merge_into_existing(match, merge_data)
+            # Promote watch_list to pass if active roles found
+            if status == 'active_role' and match.get('validation_status') == 'watch_list':
+                match['validation_status'] = 'pass'
+            if r.get('notes'):
+                existing_notes = match.get('notes', '')
+                match['notes'] = f"{existing_notes} | monitor {today}: {r['notes']}" if existing_notes else f"monitor {today}: {r['notes']}"
             updated += 1
         else:
             # New company — add to target list
@@ -460,7 +445,6 @@ def cmd_merge(dry_run: bool = False) -> int:
             if new_row.get('role_family'):
                 new_row['role_family'] = normalize_path(new_row['role_family'], _CANONICAL_PATHS)
             existing_rows.append(new_row)
-            existing_by_name[key] = [len(existing_rows) - 1]
             added += 1
 
     # Re-sort: pass rows by score desc, watch_list by name
@@ -483,6 +467,14 @@ def cmd_merge(dry_run: bool = False) -> int:
     print(f'  added new:        {added}')
     print(f'  no change:        {no_change}')
     print(f'  total in target-companies.csv: {len(final_rows)}')
+
+    # Normalize company names and paths before writing
+    for row in final_rows:
+        row['company'] = normalize_company(row.get('company', ''))
+        old = row.get('role_family', '').strip()
+        new = normalize_path(old) if old else infer_path_for_company(row.get('company', ''))
+        if new:
+            row['role_family'] = new
 
     if not dry_run:
         _write_csv(TARGET_CSV, final_rows, HEADER)

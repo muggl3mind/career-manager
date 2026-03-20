@@ -79,113 +79,40 @@ ML teams at scale rather than building dashboards or ad-hoc analysis.
 
 ```json
 {
-  "query_packs": {
-    "ml_infrastructure": {
-      "label": "ML Infrastructure & Platform Engineering",
-      "queries": [
-        "ML infrastructure engineer",
-        "MLOps platform engineer",
-        "senior data engineer ML platform",
-        "machine learning platform engineer"
-      ],
-      "locations": ["Remote", "United States"],
-      "job_type": "fulltime"
-    },
-    "data_platform_ml": {
-      "label": "Data Platform with ML Focus",
-      "queries": [
-        "data platform engineer machine learning",
-        "senior data engineer feature store",
-        "streaming data engineer ML pipeline"
-      ],
-      "locations": ["Remote", "United States"],
-      "job_type": "fulltime"
-    },
-    "mlops_devops": {
-      "label": "MLOps & ML DevOps",
-      "queries": [
-        "MLOps engineer senior",
-        "ML deployment engineer",
-        "model serving infrastructure engineer"
-      ],
-      "locations": ["Remote", "United States"],
-      "job_type": "fulltime"
-    }
-  },
-  "role_include_patterns": [
-    "ml.*infra", "mlops", "ml.*platform", "machine.*learn.*engineer",
-    "data.*engineer.*ml", "feature.*store", "model.*serv"
-  ],
-  "role_exclude_patterns": [
-    "data.*analyst", "business.*intelligence", "junior", "intern",
-    "marketing", "sales.*engineer"
-  ],
-  "employer_exclude_patterns": [
-    "staffing", "recruiting", "talent.*agency"
-  ],
-  "location_exclude_patterns": [
-    "india", "philippines", "nigeria"
-  ],
-  "keywords": {
-    "domain": ["feature store", "ML pipeline", "model serving", "experiment tracking"],
-    "ai": ["MLOps", "Kubeflow", "MLflow", "model registry", "inference"],
-    "tech": ["Spark", "Airflow", "Kubernetes", "Terraform", "Docker"]
-  },
-  "gold_companies": [
-    "Databricks", "Anyscale", "Tecton", "Weights & Biases",
-    "Modal", "Replicate", "Hugging Face", "Scale AI",
-    "Netflix", "Stripe", "Airbnb", "Uber"
-  ],
-  "prospecting_paths": [
-    {
-      "path": 1,
-      "name": "ML Infrastructure & Platform Engineering",
-      "search_queries": [
-        "companies hiring ML infrastructure engineers 2026",
-        "ML platform engineering teams scaling"
-      ],
-      "named_targets": ["Databricks", "Anyscale", "Modal", "Replicate", "Netflix"],
-      "new_targets_goal": 3
-    },
-    {
-      "path": 2,
-      "name": "Data Platform with ML Focus",
-      "search_queries": [
-        "data platform companies adding ML features",
-        "feature store companies hiring engineers"
-      ],
-      "named_targets": ["Tecton", "Feast", "Confluent", "Fivetran", "dbt Labs"],
-      "new_targets_goal": 3
-    },
-    {
-      "path": 3,
-      "name": "MLOps & ML DevOps",
-      "search_queries": [
-        "MLOps platform companies hiring",
-        "ML deployment infrastructure companies"
-      ],
-      "named_targets": ["Weights & Biases", "Neptune.ai", "Comet ML", "Seldon", "BentoML"],
-      "new_targets_goal": 3
-    }
-  ],
-  "path_check_instructions": {
-    "1": "Search for ML infrastructure and platform engineering roles. Look for companies building internal ML platforms or developer tools for ML teams.",
-    "2": "Search for data platform roles with ML focus. Prioritize companies building feature stores, real-time data pipelines for ML, or data infrastructure with ML integrations.",
-    "3": "Search for MLOps, model deployment, and ML DevOps roles. Focus on companies building ML deployment tooling or running large-scale model serving infrastructure."
-  },
-  "role_patterns": [
+  "job_titles": [
     "ML Infrastructure Engineer",
     "MLOps Engineer",
     "Senior Data Engineer - ML Platform",
-    "Platform Engineer - Machine Learning"
+    "Platform Engineer - Machine Learning",
+    "ML Platform Engineer"
   ],
-  "scoring": {
-    "domain_keywords": {"feature store": 8, "ML pipeline": 7, "model serving": 8},
-    "ai_keywords": {"MLOps": 6, "Kubeflow": 5, "MLflow": 5},
-    "role_keywords": {"infrastructure": 7, "platform": 7, "MLOps": 8},
-    "comp_indicators": {"senior": 5, "staff": 7, "principal": 8},
-    "growth_indicators": {"series b": 4, "series c": 5, "ipo": 3}
-  }
+  "keywords": [
+    "feature store",
+    "ML pipeline",
+    "MLOps",
+    "model serving",
+    "Kubeflow",
+    "MLflow"
+  ],
+  "locations": ["Seattle, WA", "Remote"],
+  "exclude_terms": [
+    "data analyst",
+    "business intelligence",
+    "junior",
+    "intern"
+  ],
+  "salary_min": 170000,
+  "company_size_min": 20,
+  "sources": [
+    {
+      "name": "LinkedIn",
+      "url_template": "https://www.linkedin.com/jobs/search/?keywords={title}&location={location}"
+    },
+    {
+      "name": "Greenhouse boards",
+      "notes": "Check target company career pages directly"
+    }
+  ]
 }
 ```
 

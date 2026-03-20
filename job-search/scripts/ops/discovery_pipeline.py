@@ -26,6 +26,8 @@ from config_loader import get as config_get
 sys.path.insert(0, str(BASE / "scripts" / "core"))
 from search_config_loader import load_search_config
 from csv_schema import HEADER
+from company_dedup import find_existing, merge_into_existing
+from path_normalizer import normalize_company
 
 DATA = BASE / 'data'
 
@@ -52,6 +54,7 @@ if _SEARCH_CONFIG:
     ROLE_EXCLUDE = _SEARCH_CONFIG["role_exclude_patterns"]
     BA_ALLOWED_CONTEXT = _SEARCH_CONFIG.get("role_rescue_keywords", [])
     EMPLOYER_EXCLUDE = _build_regex(_SEARCH_CONFIG.get("employer_exclude_patterns", []))
+    AGENCY_DETECT = _build_regex(_SEARCH_CONFIG.get("agency_patterns", []))
     NON_US_PAT = _build_regex(_SEARCH_CONFIG.get("location_exclude_patterns", []))
     _kw = _SEARCH_CONFIG.get("keywords", {})
     DOMAIN_KEYWORDS = _kw.get("domain", [])
@@ -66,6 +69,7 @@ else:
     ROLE_EXCLUDE = []
     BA_ALLOWED_CONTEXT = []
     EMPLOYER_EXCLUDE = re.compile(r'(?!)')
+    AGENCY_DETECT = re.compile(r'(?!)')
     NON_US_PAT = re.compile(r'(?!)')
     DOMAIN_KEYWORDS = []
     AI_KEYWORDS = []
@@ -221,12 +225,8 @@ def main() -> int:
     ap.add_argument('--dry-run', action='store_true')
     ap.add_argument('--limit', type=int, default=35)
     ap.add_argument('--allow-global', action='store_true')
-    ap.add_argument('--preserve-existing-manual', action='store_true', default=True)
-    ap.add_argument('--no-preserve-existing-manual', action='store_true')
     ap.add_argument('--skip-eval', action='store_true', help='Skip LLM evaluation, discovery only')
     args = ap.parse_args()
-    if args.no_preserve_existing_manual:
-        args.preserve_existing_manual = False
 
     errors = 0
     try:
@@ -275,6 +275,7 @@ def main() -> int:
 
         industry = detect_industry(text)
         tech_signals = detect_tech_signals(text)
+        is_agency = bool(AGENCY_DETECT.search(company))
 
         row = {
             'rank': '',
@@ -289,7 +290,7 @@ def main() -> int:
             'tech_signals': tech_signals,
             'open_positions': title,
             'last_checked': today,
-            'notes': f"source={source}",
+            'notes': f"source={source}" + (" | is_agency=true" if is_agency else ""),
             'role_family': d.get('role_family', ''),
             'source': source,
             'location_detected': d.get('location', ''),
@@ -306,25 +307,8 @@ def main() -> int:
         seen_company_title.add(key2)
         validated.append(row)
 
-    if args.preserve_existing_manual:
-        existing = _read_existing(TARGET_CSV)
-        for r in existing:
-            src = (r.get('source') or '').lower()
-            if src in {'manual_enriched', 'manual', 'company_board', 'web_prospecting', 'linkedin', 'monitor'}:
-                title = (r.get('open_positions') or '').strip()
-                if not title or PLACEHOLDER_PAT.search(title.lower()):
-                    reasons['manual_placeholder_title'] += 1
-                    continue
-                k = ((r.get('company') or '').lower(), title.lower(), (r.get('careers_url') or '').lower())
-                if k not in seen:
-                    if not r.get('validation_status'):
-                        r['validation_status'] = 'pass'
-                    if 'role_family' not in r:
-                        r['role_family'] = 'manual'
-                    validated.append(r)
-                    seen.add(k)
-
     # --- LLM evaluation export (Claude evaluates natively as part of the skill) ---
+    scored = []
     if not args.skip_eval:
         try:
             from evaluate_jobs import export_pending
@@ -333,7 +317,9 @@ def main() -> int:
             sys.path.insert(0, str(Path(__file__).parent))
             from evaluate_jobs import export_pending
 
-        validated = export_pending(validated, dry_run=args.dry_run)
+        scored, validated = export_pending(validated, dry_run=args.dry_run)
+    else:
+        scored = validated  # skip_eval: write everything as before
 
     # final global ordering: llm_score descending
     def sort_key(r):
@@ -343,13 +329,21 @@ def main() -> int:
         except (TypeError, ValueError):
             return 0.0
 
-    validated.sort(key=sort_key, reverse=True)
-    for i, r in enumerate(validated, 1):
-        r['rank'] = str(i)
-
     write_csv(RAW_CSV, raw_rows, HEADER)
     if not args.dry_run:
-        write_csv(TARGET_CSV, validated, HEADER)
+        # Merge only SCORED new jobs into existing target CSV (dedup by company name)
+        existing = _read_existing(TARGET_CSV)
+        for s in scored:
+            s['company'] = normalize_company(s.get('company', ''))
+            match = find_existing(s.get('company', ''), existing)
+            if match:
+                merge_into_existing(match, s)
+            else:
+                existing.append(s)
+        existing.sort(key=sort_key, reverse=True)
+        for i, r in enumerate(existing, 1):
+            r['rank'] = str(i)
+        write_csv(TARGET_CSV, existing, HEADER)
         _sync_xlsx()
 
     report = DATA / f"job-search-run-report-{datetime.now().strftime('%Y-%m-%d')}.md"
@@ -358,6 +352,7 @@ def main() -> int:
         '',
         f"- discovered: {len(discovered)}",
         f"- validated_pass: {len(validated)}",
+        f"- scored_ready: {len(scored)}",
         f"- rejected: {sum(reasons.values())}",
         f"- llm_eval: {'skipped' if args.skip_eval else 'enabled'}",
         '',
@@ -366,8 +361,8 @@ def main() -> int:
     for k, v in sorted(reasons.items(), key=lambda x: (-x[1], x[0])):
         lines.append(f"- {k}: {v}")
 
-    lines += ['', '## Top 15 by score']
-    for r in validated[:15]:
+    lines += ['', '## Top 15 by score (new scored jobs)']
+    for r in scored[:15]:
         llm_s = r.get('llm_score', '')
         lines.append(
             f"- #{r.get('rank')} {r.get('company')} — {r.get('open_positions')} "

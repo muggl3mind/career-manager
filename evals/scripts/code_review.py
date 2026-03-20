@@ -135,6 +135,48 @@ def check_dict_overwrite(src: str) -> dict:
     return check
 
 
+def check_skill_dir_path(src: str) -> dict:
+    """Bug: score_companies.py SKILL_DIR resolves to scripts/ not job-search/."""
+    check = {
+        'check': 'score_companies_path',
+        'file': 'scripts/core/score_companies.py',
+        'status': 'pass',
+        'detail': '',
+    }
+    # The file is at scripts/core/score_companies.py (3 levels below job-search/)
+    # .parent.parent = scripts/ (wrong), .parent.parent.parent or .parents[2] = job-search/ (correct)
+    match = re.search(r'SKILL_DIR\s*=\s*Path\(__file__\)\.resolve\(\)((?:\.parent)+)', src)
+    if not match:
+        # Check for .parents[] syntax
+        match2 = re.search(r'SKILL_DIR\s*=\s*Path\(__file__\)\.resolve\(\)\.parents\[(\d+)\]', src)
+        if match2:
+            depth = int(match2.group(1))
+            if depth == 2:
+                check['detail'] = 'SKILL_DIR uses .parents[2] (correct for scripts/core/)'
+            else:
+                check['status'] = 'fail'
+                check['detail'] = f'SKILL_DIR uses .parents[{depth}], expected .parents[2]'
+        else:
+            check['status'] = 'warn'
+            check['detail'] = 'Could not locate SKILL_DIR assignment'
+        return check
+
+    parent_chain = match.group(1)
+    depth = parent_chain.count('.parent')
+    if depth == 2:
+        check['status'] = 'fail'
+        check['detail'] = (
+            f'SKILL_DIR = Path(__file__).resolve(){parent_chain} resolves to scripts/ '
+            f'(2 levels up from scripts/core/). Needs 3 levels (.parent.parent.parent) '
+            f'to reach job-search/. CSV_PATH will point to scripts/data/ which does not exist.'
+        )
+    elif depth == 3:
+        check['detail'] = 'SKILL_DIR uses .parent.parent.parent (correct for scripts/core/)'
+    else:
+        check['status'] = 'warn'
+        check['detail'] = f'SKILL_DIR goes {depth} levels up — verify manually'
+    return check
+
 
 def check_run_pipeline_self_eval(src: str) -> dict:
     """Check: run_pipeline.py phase3 should not embed health checks from within the pipeline."""
@@ -161,12 +203,14 @@ def run_code_review(as_json: bool = False) -> int:
 
     discovery_src = _read(SCRIPTS_OPS / 'discovery_pipeline.py')
     monitor_src = _read(SCRIPTS_OPS / 'monitor_watchlist.py')
+    score_src = _read(SCRIPTS_CORE / 'score_companies.py')
     pipeline_src = _read(SCRIPTS_OPS / 'run_pipeline.py')
 
     all_checks = []
     all_checks.append(check_preserve_existing_sources(discovery_src))
     all_checks.append(check_exit_codes(discovery_src))
     all_checks.append(check_dict_overwrite(monitor_src))
+    all_checks.append(check_skill_dir_path(score_src))
     all_checks.append(check_run_pipeline_self_eval(pipeline_src))
 
     if as_json:

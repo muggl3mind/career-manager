@@ -40,7 +40,7 @@ python3 scripts/health_monitor.py --json
 
 - Evaluates: `career-manager/job-search/` (scripts, data, caches)
 - Does NOT evaluate: itself, other career-manager skills, or non-pipeline code
-- References: evals test suite and code review scripts for methodology
+- References: `workflow-standards/references/evaluation.md` for methodology
 
 ## Output Format
 

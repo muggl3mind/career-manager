@@ -5,36 +5,33 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'job-search' / 'scripts' / 'core'))
 
 
-def test_exact_match():
+def test_known_alias_resolves():
     from path_normalizer import normalize_path
-    canonical = ["AI Product Management", "PE Operations", "Professional Services"]
-    assert normalize_path("Professional Services", canonical) == "Professional Services"
+    # "Professional Services" is a known alias for "Accounting Professional Services"
+    assert normalize_path("Professional Services") == "Accounting Professional Services"
 
 
-def test_close_variant():
+def test_canonical_name_unchanged():
     from path_normalizer import normalize_path
-    canonical = ["AI Product Management", "PE Operations", "Professional Services"]
-    result = normalize_path("AI PM", canonical)
-    assert result in ("AI Product Management", "AI PM")
+    assert normalize_path("Tier 1 AI Companies") == "Tier 1 AI Companies"
 
 
-def test_no_match_below_threshold():
+def test_unknown_name_passes_through():
     from path_normalizer import normalize_path
-    canonical = ["AI Product Management", "PE Operations"]
-    assert normalize_path("Underwater Basket Weaving", canonical) == "Underwater Basket Weaving"
+    assert normalize_path("Underwater Basket Weaving") == "Underwater Basket Weaving"
 
 
 def test_case_insensitive():
     from path_normalizer import normalize_path
-    canonical = ["Professional Services"]
-    assert normalize_path("professional services", canonical) == "Professional Services"
+    assert normalize_path("tier 1 ai companies") == "Tier 1 AI Companies"
 
 
-def test_empty_canonical_list():
+def test_empty_canonical_list_ignored():
     from path_normalizer import normalize_path
-    assert normalize_path("Anything", []) == "Anything"
+    # canonical_paths param is kept for backwards compat but ignored
+    assert normalize_path("Tier 1 AI Companies", []) == "Tier 1 AI Companies"
 
 
 def test_empty_raw_name():
     from path_normalizer import normalize_path
-    assert normalize_path("", ["AI Product Management"]) == ""
+    assert normalize_path("") == ""

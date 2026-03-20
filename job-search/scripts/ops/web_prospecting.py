@@ -35,7 +35,8 @@ import sys
 sys.path.insert(0, str(BASE / 'scripts' / 'core'))
 from search_config_loader import load_search_config
 from csv_schema import HEADER
-from path_normalizer import normalize_path
+from path_normalizer import normalize_path, infer_path_for_company, normalize_company
+from company_dedup import find_existing, merge_into_existing
 
 _SEARCH_CONFIG = load_search_config(DATA / 'search-config.json')
 PROSPECTING_PATHS = _SEARCH_CONFIG.get('prospecting_paths', []) if _SEARCH_CONFIG else []
@@ -229,55 +230,41 @@ def cmd_merge(dry_run: bool = False) -> int:
     today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     now_ts = datetime.now(timezone.utc).isoformat()
 
-    # Build existing key set to avoid duplicates
-    existing_keys = set()
-    for row in existing_rows:
-        name = (row.get('company') or '').strip().lower()
-        site = (row.get('website') or '').strip().lower()
-        if name:
-            existing_keys.add(name)
-        if site:
-            existing_keys.add(site)
-
     new_rows = []
     skipped = 0
     watch_list_count = 0
     active_role_count = 0
+    existing_keys = {normalize_company(row.get('company', '')).lower() for row in existing_rows}
 
     updated_existing = 0
     for r in results:
-        company = (r.get('company') or '').strip()
+        company = normalize_company((r.get('company') or '').strip())
         website = (r.get('website') or '').strip().lower()
         name_key = company.lower()
 
-        if name_key in existing_keys or website in existing_keys:
-            # Update existing row if new roles found (instead of silently skipping)
+        match = find_existing(company, existing_rows)
+        if match:
+            # Merge new data into existing row
+            merge_data = {
+                'open_positions': (r.get('open_positions') or '').strip(),
+                'llm_score': str(r.get('llm_score', '')) if r.get('llm_score') is not None else '',
+                'llm_rationale': r.get('llm_rationale', '') or r.get('fit_rationale', ''),
+                'llm_flags': r.get('llm_flags', ''),
+                'role_url': r.get('role_url', ''),
+                'role_family': r.get('role_family', '') or r.get('llm_path_name', '') or r.get('path_name', ''),
+                'website': r.get('website', ''),
+                'careers_url': r.get('careers_url', ''),
+                'last_checked': today,
+            }
+            if r.get('llm_score'):
+                merge_data['llm_evaluated_at'] = now_ts
+            merge_into_existing(match, merge_data)
+            # Promote watch_list to pass if new active roles found
             new_roles = (r.get('open_positions') or '').strip()
             if new_roles and new_roles.lower() not in ('none', 'none — watch list', ''):
-                for row in existing_rows:
-                    if (row.get('company') or '').strip().lower() == name_key:
-                        row['last_checked'] = today
-                        existing_open = (row.get('open_positions') or '').strip()
-                        if not existing_open or existing_open.lower() in (
-                            'none — watch list', 'none', 'n/a', 'tbd', 'check careers'
-                        ):
-                            row['open_positions'] = new_roles
-                        elif new_roles.lower() not in existing_open.lower():
-                            row['open_positions'] = f"{existing_open}; {new_roles}"
-                        if row.get('validation_status') == 'watch_list':
-                            row['validation_status'] = 'pass'
-                        # Copy LLM scoring fields (only if non-empty)
-                        for field in ('llm_score', 'llm_rationale', 'llm_flags', 'role_url'):
-                            val = str(r.get(field, '')).strip()
-                            if val:
-                                row[field] = val
-                        path_val = str(r.get('role_family', '') or r.get('llm_path_name', '') or r.get('path_name', '')).strip()
-                        if path_val:
-                            row['role_family'] = path_val
-                        if r.get('llm_score'):
-                            row['llm_evaluated_at'] = now_ts
-                        updated_existing += 1
-                        break
+                if match.get('validation_status') == 'watch_list':
+                    match['validation_status'] = 'pass'
+                updated_existing += 1
             # Update seen-companies last_checked
             if name_key in seen:
                 seen[name_key]['last_checked'] = now_ts
@@ -369,6 +356,14 @@ def cmd_merge(dry_run: bool = False) -> int:
     print(f"  updated existing (new roles found): {updated_existing}")
     print(f"  skipped (already known, no new roles): {skipped - updated_existing}")
     print(f"  total in target-companies.csv: {len(final_rows)}")
+
+    # Normalize company names and paths before writing
+    for row in final_rows:
+        row['company'] = normalize_company(row.get('company', ''))
+        old = row.get('role_family', '').strip()
+        new = normalize_path(old) if old else infer_path_for_company(row.get('company', ''))
+        if new:
+            row['role_family'] = new
 
     if not dry_run:
         _write_csv(TARGET_CSV, final_rows, HEADER)

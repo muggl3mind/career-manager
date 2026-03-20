@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 BASE = Path(__file__).resolve().parents[2]
 DATA = BASE / 'data'
@@ -36,16 +36,18 @@ def save_seen_jobs(seen: Dict) -> None:
         json.dump(seen, f, indent=2, ensure_ascii=False)
 
 
-def export_pending(jobs: List[Dict], dry_run: bool = False, verbose: bool = True) -> List[Dict]:
+def export_pending(jobs: List[Dict], dry_run: bool = False, verbose: bool = True) -> Tuple[List[Dict], List[Dict]]:
     """
     Separate jobs into already-evaluated (cached) and new (pending).
 
     - Restores cached LLM fields for already-seen jobs.
     - Writes new jobs to data/pending-eval.json for Claude to evaluate.
-    - Returns all jobs with cached fields populated where available.
+    - Returns (scored_jobs, all_jobs) where scored_jobs only contains
+      jobs with cached LLM scores (ready for target CSV).
     """
     seen = load_seen_jobs()
     pending = []
+    scored_jobs = []
     cached_count = 0
 
     for job in jobs:
@@ -60,8 +62,9 @@ def export_pending(jobs: List[Dict], dry_run: bool = False, verbose: bool = True
             job['llm_hard_pass_reason'] = cached.get('llm_hard_pass_reason', '')
             job['llm_evaluated_at'] = cached.get('llm_evaluated_at', '')
             cached_count += 1
+            scored_jobs.append(job)
             if verbose:
-                print(f"  [eval] cached  {job.get('company')} — {job.get('open_positions')} (llm_score={job['llm_score']})")
+                print(f"  [eval] cached  {job.get('company')} - {job.get('open_positions')} (llm_score={job['llm_score']})")
         else:
             # Ensure blank LLM fields so CSV columns are consistent
             for col in ('llm_score', 'role_family', 'llm_rationale',
@@ -75,6 +78,8 @@ def export_pending(jobs: List[Dict], dry_run: bool = False, verbose: bool = True
                 'location': job.get('location_detected', ''),
                 'description': (job.get('description') or '')[:3000],
                 'role_family': job.get('role_family', ''),
+                'is_agency': 'is_agency=true' in (job.get('notes', '')),
+                'source': job.get('source', ''),
             })
 
     if verbose:
@@ -85,6 +90,6 @@ def export_pending(jobs: List[Dict], dry_run: bool = False, verbose: bool = True
         with PENDING_EVAL.open('w', encoding='utf-8') as f:
             json.dump(pending, f, indent=2, ensure_ascii=False)
         print(f"[evaluate_jobs] wrote {len(pending)} jobs to {PENDING_EVAL}")
-        print(f"[evaluate_jobs] Claude will evaluate these — run the skill to continue")
+        print(f"[evaluate_jobs] Claude will evaluate these - run the skill to continue")
 
-    return jobs
+    return scored_jobs, jobs

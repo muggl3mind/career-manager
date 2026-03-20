@@ -118,10 +118,18 @@ uv run scripts/ops/discovery_pipeline.py --skip-eval           # discovery only,
 **Step 2 — Evaluation (Claude reads pending-eval.json and scores each job):**
 
 When `data/pending-eval.json` exists, Claude reads it and evaluates each job against `references/criteria.md`.
+
+**Agency-posted jobs:** If a job has `"is_agency": true`, the company name is a recruiting agency, not the actual employer. Before scoring:
+1. Visit the job URL (LinkedIn/Indeed link)
+2. Look for the actual hiring company in the job description
+3. If found, set `"actual_company": "Real Company Name"` in the result
+4. If not found, set `"actual_company": null` and add `"agency_unresolved"` to red_flags
+
 For each job, output a JSON object with this structure:
 ```json
 {
   "careers_url": "<url>",
+  "actual_company": "<real company or null>",
   "path": <1-8 or null>,
   "path_name": "<label>",
   "scores": {
