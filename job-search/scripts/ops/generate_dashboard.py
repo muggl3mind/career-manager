@@ -31,7 +31,7 @@ def read_action_list() -> list[dict]:
         return list(csv.DictReader(f))
 
 
-def read_target_companies(limit: int = 0) -> list[dict]:
+def read_target_companies(limit: int = 0, pass_only: bool = True) -> list[dict]:
     """Read target-companies.csv. If limit > 0, return top N by llm_score."""
     path = DATA / 'target-companies.csv'
     if not path.exists():
@@ -39,13 +39,12 @@ def read_target_companies(limit: int = 0) -> list[dict]:
     with path.open(encoding='utf-8') as f:
         rows = list(csv.DictReader(f))
 
-    # Filter to pass only
-    rows = [r for r in rows if r.get('validation_status') == 'pass']
+    if pass_only:
+        rows = [r for r in rows if r.get('validation_status') == 'pass']
 
-    # Sort by score descending
     def score_key(r):
         try:
-            return float(r.get('llm_score', '') or r.get('numeric_score', '') or '0')
+            return float(r.get('llm_score', '') or '0')
         except (ValueError, TypeError):
             return 0.0
     rows.sort(key=score_key, reverse=True)
@@ -81,8 +80,8 @@ def escape(val: str) -> str:
     return html.escape(val or '', quote=True)
 
 
-def build_html(action_rows: list[dict], top_targets: list[dict],
-               all_targets: list[dict], full_mode: bool) -> str:
+def build_html(action_rows: list[dict], all_targets: list[dict],
+               full_mode: bool, full_targets: list[dict] | None = None) -> str:
     """Build the complete HTML dashboard string."""
 
     source_map = build_source_map(all_targets)
@@ -111,8 +110,8 @@ def build_html(action_rows: list[dict], top_targets: list[dict],
         company = escape(r.get('company', ''))
         apply_url = r.get('apply_url', '').strip()
         role = escape(r.get('role', '') or r.get('open_positions', ''))
-        score = r.get('llm_score', '') or r.get('numeric_score', '')
-        path = escape(r.get('path', '') or r.get('llm_path_name', ''))
+        score = r.get('llm_score', '')
+        path = escape(r.get('path', '') or r.get('role_family', ''))
         rationale = escape(r.get('fit_summary', '') or r.get('llm_rationale', ''))
         color = score_color(score)
 
@@ -140,13 +139,32 @@ def build_html(action_rows: list[dict], top_targets: list[dict],
 
     action_table_rows = '\n'.join(make_table_row(r, include_source=True) for r in action_rows)
 
-    # Top targets table (from target-companies.csv directly)
-    top_target_rows = '\n'.join(make_table_row(r, include_source=True) for r in top_targets)
-
     # Path filter options
     path_options = '\n'.join(f'<option value="{escape(p)}">{escape(p)}</option>' for p in paths)
 
     title = 'Career Manager Dashboard (Full)' if full_mode else 'Career Manager Dashboard'
+
+    # All Targets table (full mode only)
+    full_section = ''
+    if full_mode and full_targets:
+        all_target_rows_html = '\n'.join(make_table_row(r, include_source=True) for r in full_targets)
+        full_section = f'''<h2>All Targets ({len(full_targets)} companies)</h2>
+
+<table id="allTable">
+<thead>
+<tr>
+  <th onclick="sortTable('allTable', 0)">Company</th>
+  <th onclick="sortTable('allTable', 1)">Role</th>
+  <th onclick="sortTable('allTable', 2)">Score</th>
+  <th onclick="sortTable('allTable', 3)">Path</th>
+  <th onclick="sortTable('allTable', 4)">Rationale</th>
+  <th onclick="sortTable('allTable', 5)">Source</th>
+</tr>
+</thead>
+<tbody>
+{all_target_rows_html}
+</tbody>
+</table>'''
 
     return f'''<!DOCTYPE html>
 <html lang="en">
@@ -224,23 +242,7 @@ def build_html(action_rows: list[dict], top_targets: list[dict],
 </tbody>
 </table>
 
-<h2>Top 25 Targets</h2>
-
-<table id="topTable">
-<thead>
-<tr>
-  <th onclick="sortTable('topTable', 0)">Company</th>
-  <th onclick="sortTable('topTable', 1)">Role</th>
-  <th onclick="sortTable('topTable', 2)">Score</th>
-  <th onclick="sortTable('topTable', 3)">Path</th>
-  <th onclick="sortTable('topTable', 4)">Rationale</th>
-  <th onclick="sortTable('topTable', 5)">Source</th>
-</tr>
-</thead>
-<tbody>
-{top_target_rows}
-</tbody>
-</table>
+{full_section}
 
 <p class="generated">Generated {run_date}</p>
 
@@ -304,13 +306,14 @@ def main():
 
     action_rows = read_action_list()
     all_targets = read_target_companies()
-    top_targets = all_targets[:25]
 
     if args.full:
-        html_content = build_html(action_rows, top_targets, all_targets, full_mode=True)
+        all_targets_unfiltered = read_target_companies(pass_only=False)
+        html_content = build_html(action_rows, all_targets, full_mode=True,
+                                  full_targets=all_targets_unfiltered)
         output_path = DATA / 'dashboard-full.html'
     else:
-        html_content = build_html(action_rows, top_targets, all_targets, full_mode=False)
+        html_content = build_html(action_rows, all_targets, full_mode=False)
         output_path = DATA / 'dashboard.html'
 
     output_path.write_text(html_content, encoding='utf-8')
