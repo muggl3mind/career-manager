@@ -53,8 +53,7 @@ def export_pending(jobs: List[Dict], dry_run: bool = False, verbose: bool = True
         cached = seen.get(url)
         if cached and cached.get('llm_score') is not None:
             job['llm_score'] = cached.get('llm_score')
-            job['llm_path'] = cached.get('llm_path')
-            job['llm_path_name'] = cached.get('llm_path_name', '')
+            job['role_family'] = cached.get('role_family', '')
             job['llm_rationale'] = cached.get('llm_rationale', '')
             job['llm_flags'] = cached.get('llm_flags', '')
             job['llm_hard_pass'] = cached.get('llm_hard_pass', 'false')
@@ -65,7 +64,7 @@ def export_pending(jobs: List[Dict], dry_run: bool = False, verbose: bool = True
                 print(f"  [eval] cached  {job.get('company')} — {job.get('open_positions')} (llm_score={job['llm_score']})")
         else:
             # Ensure blank LLM fields so CSV columns are consistent
-            for col in ('llm_score', 'llm_path', 'llm_path_name', 'llm_rationale',
+            for col in ('llm_score', 'role_family', 'llm_rationale',
                         'llm_flags', 'llm_hard_pass',
                         'llm_hard_pass_reason', 'llm_evaluated_at'):
                 job.setdefault(col, '')
