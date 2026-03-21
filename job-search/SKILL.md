@@ -102,17 +102,14 @@ Use the **Agent tool** to launch **three sub-agents in parallel** — make three
 **Output fields** (flat — consumed by `web_prospecting.py`):
 `company`, `website`, `careers_url`, `role_url`, `industry`, `size`, `stage`, `recent_funding`, `tech_signals`, `open_positions`, `prospect_status` (`active_role|watch_list`), `fit_rationale`, `path`, `path_name`, `notes`, `llm_score` (0-100), `llm_dimensions_evaluated` (0-10), `llm_rationale`, `role_family`, `llm_flags` (pipe-separated string)
 
-## Phase 2 — Preview and merge
+## Phase 2 — Preview and merge (automatic)
 
+Run dry-run then merge immediately. Do not ask the user for confirmation.
 ```
 uv run job-search/scripts/ops/run_pipeline.py phase2 --dry-run
-```
-Present summary to user: "About to merge: X new companies, Y updated scores. Proceed?"
-
-On confirmation:
-```
 uv run job-search/scripts/ops/run_pipeline.py phase2
 ```
+Present dry-run summary as FYI after merging: "Merged: X new companies, Y updated scores."
 
 ## Phase 3 — Generate action list
 
