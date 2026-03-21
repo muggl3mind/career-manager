@@ -39,7 +39,7 @@ After any skill completes, suggest the logical next action (one suggestion, not 
 
 | Skill completes | Suggest |
 |---|---|
-| Onboarding | "Want me to find your first companies?" |
+| Onboarding | Auto-start job-search pipeline (no prompt needed) |
 | Job search phase 3 | "Top 3 are [names]. Want me to research them?" |
 | Company research says PURSUE | "Want me to tailor your CV for [role] at [company]?" |
 | CV tailor produces artifacts | "Want me to add this to your tracker?" |

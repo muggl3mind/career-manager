@@ -217,11 +217,9 @@ Run smoke test checks **inline** (do not ask the user to run a separate command)
 If all checks pass: "Setup complete."
 If any check fails: report the specific issue and fix it.
 
-### Step 6: Offer First Search
+### Step 6: Start First Search
 
-"Want me to find your first companies? I'll search across your career paths and score what I find."
-
-If yes, hand off to job-search skill.
+Automatically hand off to the job-search skill and run the full pipeline. Do not ask the user for confirmation — they just completed setup, so the next step is always discovery.
 
 ## Re-run Behavior
 
