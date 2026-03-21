@@ -46,5 +46,11 @@ __pycache__/
 .env
 .venv/
 
+# Superpowers working documents
+docs/superpowers/
+
+# Unused sample data
+examples/
+
 # macOS
 .DS_Store
