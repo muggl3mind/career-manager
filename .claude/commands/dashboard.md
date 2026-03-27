@@ -1,0 +1,1 @@
+Check if job-search/data/dashboard.html exists. If yes, run: open job-search/data/dashboard.html. If not, run phase 3 of the pipeline to generate it first, then open it.

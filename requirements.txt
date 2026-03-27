@@ -1,0 +1,27 @@
+# Career Manager Pipeline Dependencies
+# Install: pip install -r requirements.txt
+
+# Config
+PyYAML>=6.0
+
+# Job scraping (optional - set jobspy_enabled: false in config.yaml to skip)
+# Note: python-jobspy pulls in pandas as a transitive dependency
+python-jobspy>=1.1.0
+
+# Document generation
+python-docx>=1.1.0
+openpyxl>=3.1.0
+
+# Gmail integration (optional - set gmail_enabled: false in config.yaml to skip)
+google-auth>=2.0.0
+google-auth-oauthlib>=1.0.0
+google-api-python-client>=2.0.0
+
+# HTTP requests (used by Todoist client and web checks)
+requests>=2.31.0
+
+# Tavily Map API (optional - set tavily_enabled: false in config.yaml to skip)
+tavily-python>=0.5.0
+
+# Testing
+pytest>=7.0

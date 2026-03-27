@@ -1,0 +1,1 @@
+Read cv-tailor/SKILL.md. Tailor my CV for: $ARGUMENTS

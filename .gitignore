@@ -1,0 +1,56 @@
+# User-specific config (use config.yaml.example as template)
+config.yaml
+
+# Credentials (both naming conventions)
+credentials/
+.credentials/
+*.pickle
+
+# Data files (user's actual job search data)
+job-search/data/target-companies.csv
+job-search/data/target-companies.xlsx
+job-search/data/raw-discovery.csv
+job-search/data/action-list.csv
+job-search/data/seen-companies.json
+job-search/data/seen-jobs.json
+job-search/data/run-log.jsonl
+job-search/data/cv-index.json
+job-search/data/pending-eval.json
+job-search/data/eval-results.json
+job-search/data/monitor-context.json
+job-search/data/monitor-results.json
+job-search/data/prospecting-context.json
+job-search/data/prospecting-results.json
+job-search/data/pipeline-phase1-summary.json
+job-search/data/search-config.json
+job-search/data/dashboard.html
+job-search/data/dashboard-full.html
+job-tracker/data/applications.csv
+company-research/dossiers/
+!company-research/dossiers/.gitkeep
+cv-tailor/data/CV/*
+!cv-tailor/data/CV/Master CV/
+cv-tailor/data/CV/Master CV/*
+!cv-tailor/data/CV/Master CV/.gitkeep
+cv-tailor/data/cv-registry.json
+cv-tailor/data/cv-role-families.json
+cv-tailor/data/pending-analysis.json
+cv-tailor/data/analysis.json
+
+# Eval history
+evals/data/score-history.jsonl
+
+# Python
+__pycache__/
+*.pyc
+.env
+.venv/
+
+# Superpowers working documents
+docs/superpowers/
+
+# Unused sample data
+examples/
+
+# macOS
+.DS_Store
