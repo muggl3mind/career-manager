@@ -4,13 +4,7 @@ An AI-assisted career management system built as a set of Claude Code skills. Or
 
 > **Note:** This is a personal productivity tool shared for inspiration and adaptation, not a production service.
 
-## Demo
-
-[![Watch the 1-minute demo](assets/screenshot-dashboard.jpg)](https://youtu.be/L-8e5EkNv1w)
-
-**[Watch the 1-minute demo on YouTube](https://youtu.be/L-8e5EkNv1w)**
-
-### Screenshots
+## Screenshots
 
 **Career Dashboard** -- track applications, scores, follow-ups, and contacts at a glance.
 
@@ -19,6 +13,12 @@ An AI-assisted career management system built as a set of Claude Code skills. Or
 **Pipeline View** -- discover and score companies across your target industries.
 
 ![Pipeline View](assets/screenshot-pipeline.jpg)
+
+## Demo
+
+[![Watch the 1-minute demo](assets/screenshot-demo-thumbnail.jpg)](https://youtu.be/L-8e5EkNv1w)
+
+**[Watch the 1-minute demo on YouTube](https://youtu.be/L-8e5EkNv1w)**
 
 ## Getting Started
 
