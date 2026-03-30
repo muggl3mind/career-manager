@@ -4,6 +4,22 @@ An AI-assisted career management system built as a set of Claude Code skills. Or
 
 > **Note:** This is a personal productivity tool shared for inspiration and adaptation, not a production service.
 
+## Demo
+
+[![Watch the 1-minute demo](assets/screenshot-dashboard.jpg)](https://youtu.be/L-8e5EkNv1w)
+
+**[Watch the 1-minute demo on YouTube](https://youtu.be/L-8e5EkNv1w)**
+
+### Screenshots
+
+**Career Dashboard** -- track applications, scores, follow-ups, and contacts at a glance.
+
+![Career Dashboard](assets/screenshot-dashboard.jpg)
+
+**Pipeline View** -- discover and score companies across your target industries.
+
+![Pipeline View](assets/screenshot-pipeline.jpg)
+
 ## Getting Started
 
 1. Install [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview)
