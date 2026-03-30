@@ -6,6 +6,10 @@ credentials/
 .credentials/
 *.pickle
 
+# Personal reference files (generated during onboarding)
+job-search/references/background-context.md
+job-search/references/criteria.md
+
 # Data files (user's actual job search data)
 job-search/data/target-companies.csv
 job-search/data/target-companies.xlsx
