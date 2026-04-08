@@ -263,7 +263,8 @@ def main() -> int:
         return 1
     if not discovered:
         print("WARNING: Discovery returned 0 results", file=sys.stderr)
-        errors = 1
+        if JOBSPY_AVAILABLE and config_get("integrations.jobspy_enabled", False):
+            errors = 1
     raw_rows: List[Dict] = []
     validated: List[Dict] = []
     reasons = Counter()
@@ -340,7 +341,6 @@ def main() -> int:
         try:
             from evaluate_jobs import export_pending
         except ImportError:
-            import sys
             sys.path.insert(0, str(Path(__file__).parent))
             from evaluate_jobs import export_pending
 
