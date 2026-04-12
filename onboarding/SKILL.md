@@ -15,6 +15,17 @@ Personalize the career-manager pipeline for a new user through a focused setup.
 
 ## Flow
 
+### Step 0: Ensure Local Python Environment
+
+Before reading the resume or generating files, create a repo-local virtual environment if one doesn't already exist:
+
+```bash
+uv venv
+uv pip install -r requirements.txt
+```
+
+Run all subsequent Python commands through `uv run` (e.g., `uv run python3 scripts/smoke_test.py`) so dependencies resolve against the repo-local `.venv` and never install into a global Python, Conda, or system environment.
+
 ### Step 1: Get the Resume
 
 Ask: "Where's your resume? Give me the file path (e.g., ~/Desktop/resume.docx)"
