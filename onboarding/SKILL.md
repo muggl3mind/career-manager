@@ -67,7 +67,7 @@ Derive paths in two phases:
 1. **From resume:** For each sector or employer type the user spent 2+ years in, derive a career path. Group similar employers (e.g., multiple Big 4 firms = one "Professional Services / Advisory" path, not four). If no employer meets the 2-year threshold, use the user's longest-tenured roles regardless.
 2. **From targets:** Add paths from the user's stated target roles that aren't already covered by Phase 1.
 
-Merge overlapping paths. List Phase 1 paths first (longest tenure first), then Phase 2 paths. Final count: 3-8 paths.
+Merge only paths that are truly redundant (same companies, same roles). Prefer granular paths over merged ones. When in doubt, keep them separate. List Phase 1 paths first (longest tenure first), then Phase 2 paths. Final count: 5-8 paths.
 
 Anything you'd change?"
 
@@ -100,7 +100,7 @@ Generate with this structure. The rubric must be CALIBRATED (tight, evidence-bas
 [Role categories with descriptions]
 
 ## Target Company Types
-[3-8 career paths. Each path has:]
+[5-8 career paths. Each path has:]
 ### Path N: [Path Name]
 - **Description:** [What kind of companies]
 - **Example Companies:** [2-3 well-known examples for context, not monitored]
@@ -209,7 +209,7 @@ Generate valid JSON matching this exact structure. **Pay close attention to type
 - `path_check_instructions` is a **dict keyed by path number as string** ("1", "2", etc.), NOT a single string
 - One query pack per career path (for JobSpy)
 - All regex patterns must be valid Python regex, no inline flags like `(?i)`
-- Minimum: 3+ paths, 3+ queries per pack
+- Minimum: 5 paths, 3+ queries per pack
 - `display_groups` groups related query pack labels into 3-4 dashboard display categories. Each label must match a query pack's `label` field exactly. Paths not mapped go to "Other"
 
 **Search locations:**
