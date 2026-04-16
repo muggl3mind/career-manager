@@ -28,3 +28,28 @@ credentials:
   gmail_token: .credentials/gmail-token.pickle
   # Tavily API key file — JSON with {"api_key": "tvly-..."}
   tavily_token: .credentials/tavily-token.json
+
+pipeline:
+  # Action list thresholds and lifecycle behavior.
+  # These are the knobs that control how precise vs. broad your shortlist is.
+  action_list:
+    # Score cutoff for "Apply Now" section (requires a specific role_url).
+    apply_min_score: 70
+    # Score cutoff for "Watch / Outreach" section (no role_url required).
+    watch_min_score: 85
+    # Max rows in the Watch / Outreach section even if more companies pass the threshold.
+    watch_max_rows: 20
+  discovery:
+    # Net-new companies are kept only if they score at or above this.
+    discover_min_score: 70
+    # Per-agent search query budget.
+    per_agent_query_budget: 15
+    # No minimum-companies quota — agents return what they actually find (including empty).
+  lifecycle:
+    # A company in 'watching' state for this many consecutive runs → 'archived'.
+    archive_grace_runs: 2
+
+query_templates:
+  # Optional per-user query patterns. Leave empty to use engine defaults.
+  # Use {path_label} as a placeholder for each career path.
+  extra_patterns: []

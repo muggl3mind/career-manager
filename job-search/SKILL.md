@@ -97,11 +97,11 @@ For each path context file:
 1. Read the context file to get `path_label`, `path_description`, `known_companies_skip`, `known_companies`, and `instructions`
 2. Read `references/criteria.md` for scoring rubric
 3. Follow the 4-step research protocol in the context file's `instructions`:
-   a. **Market mapping** — find the 10-15 most prominent companies in this category
-   b. **Competitor expansion** — for the top 5 found, search for their competitors and alternatives
+   a. **Market mapping** — find prominent companies in this category via broad industry searches
+   b. **Competitor expansion** — for the most promising ones, search for competitors and alternatives
    c. **Funding sweep** — search for recently funded companies in the space
    d. **Careers check** — check each company's careers page, classify as `active_role` or `watch_list`. If `watch_list`, you MUST provide `watch_reason` (one of: no_careers_page, no_matching_roles, roles_wrong_location, company_too_early, domain_mismatch, unable_to_verify) and `watch_evidence` (specific evidence supporting the reason). Vague reasons like "ambiguous" are not accepted.
-4. Find a minimum of 8 companies. Maximum 15 web searches per agent.
+4. Budget: up to the query cap specified in the context file. NO minimum-companies requirement — return ONLY companies that score at or above the `discover_min_score` threshold in the context file. If nothing meets the threshold, return an empty results array. Do not stretch to hit a count.
 5. Score using the 10-dimension rubric from criteria.md
 6. Write results to `data/prospecting-results-{path_key}.json` using the wrapper format:
 
@@ -133,8 +133,8 @@ For each expansion context file:
 3. Follow the 3-step expansion protocol in the context file's `instructions`:
    a. **Competitor mining** — for each seed company, search competitors and alternatives
    b. **Investor portfolio mining** — for funded seed companies, search investor portfolios
-   c. **Community/list mining** — search for curated startup lists, YC batches, awesome-lists
-4. Find a minimum of 4 NEW companies (not in skip list). Maximum 10 web searches per agent.
+   c. **Community/list mining** — search for curated startup lists, batches, awesome-lists
+4. Budget: up to the query cap in the context file. NO minimum-companies requirement — return ONLY NEW (not in skip list) companies scoring at or above `discover_min_score`. If nothing qualifies, return an empty results array.
 5. Score using the 10-dimension rubric from criteria.md
 6. Write results to `data/prospecting-results-{path_key}-expansion.json` using the same wrapper format as pass 1
 7. If setting `prospect_status: watch_list`, provide `watch_reason` and `watch_evidence` (same rules as pass 1)

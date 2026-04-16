@@ -90,7 +90,7 @@ Generate from `config.yaml.example` template with:
 
 #### File 2: `job-search/references/criteria.md`
 
-Generate with this structure:
+Generate with this structure. The rubric must be CALIBRATED (tight, evidence-based) rather than loose; a well-calibrated rubric produces a spread of scores, not a cluster at the top. The average company the user's agents encounter should score around 50, not 70.
 
 ```
 ## Unique Value Proposition
@@ -109,19 +109,38 @@ Generate with this structure:
 - **Compensation Notes:** [Range based on salary floor]
 
 ## Evaluation Framework
-[10 personalized yes/no scoring dimensions]
+
+10 scoring dimensions, each scored 0-10. Total score = sum (0-100).
 
 ### Group 1: Core Fit (4 dimensions)
 ### Group 2: Compensation & Career (3 dimensions)
 ### Group 3: Culture & Growth (3 dimensions)
 
-## Scoring Guide
-- 9-10 yes = Pursue aggressively
-- 7-8 yes = Strong fit, apply and investigate
-- 5-6 yes = Moderate fit, consider or watchlist
-- <4 yes = Skip
+For EACH dimension you generate, produce:
+- **Name** and 1-line purpose.
+- **Score anchors** for 0, 3, 5, 7, 9 — each anchor is a concrete observable example, not an adjective. "Score 9 = public Levels.fyi data showing $200K+ TC at this level" is good. "Score 9 = very high comp" is bad.
+- **Evidence required for 7+.** Named source (job posting, employee review, funding announcement, public statement, etc.). If evidence is unavailable, score 5 or below — not 7+ by default.
+- **Default when unknown:** 5 (middle-of-band neutral), not 7.
 
-**Handling unknowns:** Mark as unknown rather than no. Score = (yes count / evaluated count) * 100. If fewer than 5 dimensions evaluable, flag as "needs_research".
+Emphasize in the rubric itself: "If you cannot find specific evidence, default to 5 rather than assuming the best case. A company without disclosed comp is a 5, not a 9."
+
+## Scoring Guide
+
+Thresholds align with `pipeline.action_list.*_min_score` in `config.yaml`:
+- **85-100 (HIGH):** Pursue aggressively. Cold outreach or immediate apply.
+- **70-84 (MED):** Strong fit with current evidence — apply if role is open.
+- **60-69 (LOW):** Moderate fit. Watch list or skip unless specific role matches.
+- **<60:** Skip.
+
+**Handling unknowns:** If fewer than 5 of 10 dimensions are assessable, set `llm_flags: "needs_research"` and omit the score. Otherwise, unknown dimensions default to 5, not the top of the scale.
+
+**Distributional check:** When this rubric is applied to the user's existing target list, expect roughly:
+- ~20% score ≥85 (genuine A-tier)
+- ~30% score 70-84 (B-tier, apply-worthy)
+- ~35% score 60-69 (C-tier, watch)
+- ~15% score <60 (skip)
+
+If the distribution is heavily skewed high, the rubric is too loose — tighten anchors.
 ```
 
 #### File 3: `job-search/references/background-context.md`

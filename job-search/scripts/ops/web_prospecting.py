@@ -33,13 +33,52 @@ PROSPECTING_RESULTS = DATA / 'prospecting-results.json'
 
 import sys
 sys.path.insert(0, str(BASE / 'scripts' / 'core'))
+sys.path.insert(0, str(BASE.parent / 'scripts'))
 from search_config_loader import load_search_config
 from csv_schema import HEADER
 from path_normalizer import normalize_path, normalize_company
 from company_dedup import find_existing, merge_into_existing
+try:
+    from config_loader import get as _pipeline_cfg
+except Exception:
+    _pipeline_cfg = lambda key, default=None: default  # noqa: E731
 
 _SEARCH_CONFIG = load_search_config(DATA / 'search-config.json')
 _CANONICAL_PATHS = [v['label'] for v in _SEARCH_CONFIG['query_packs'].values()] if _SEARCH_CONFIG else []
+
+_DISCOVER_MIN_SCORE = _pipeline_cfg('pipeline.discovery.discover_min_score', 70)
+_PER_AGENT_QUERY_BUDGET = _pipeline_cfg('pipeline.discovery.per_agent_query_budget', 15)
+_EXTRA_QUERY_PATTERNS = _pipeline_cfg('query_templates.extra_patterns', []) or []
+
+
+def _current_year() -> int:
+    from datetime import datetime as _dt
+    return _dt.now().year
+
+
+def _suggested_queries(path_label: str) -> list:
+    """
+    Generic, domain-agnostic query suggestions derived from the path label alone.
+    User can append to these via `query_templates.extra_patterns` in config.yaml
+    (use {path_label} and {year} as placeholders).
+    """
+    y = _current_year()
+    defaults = [
+        f'{path_label} companies',
+        f'top {path_label} startups {y}',
+        f'{path_label} companies funded {y}',
+        f'{path_label} Series A {y}',
+        f'{path_label} Series B {y}',
+        f'best {path_label} companies {y}',
+        f'{path_label} directory',
+        f'{path_label} hiring remote',
+        f'emerging {path_label} companies {y}',
+    ]
+    extras = [
+        p.replace('{path_label}', path_label).replace('{year}', str(y))
+        for p in _EXTRA_QUERY_PATTERNS
+    ]
+    return defaults + extras
 
 
 def _validate_role_family(row: Dict, canonical_paths: list[str] | None = None) -> None:
@@ -274,6 +313,9 @@ def cmd_export_perpath(
             'path_key': pack_key,
             'path_label': path_label,
             'path_description': path_desc,
+            'discover_min_score': _DISCOVER_MIN_SCORE,
+            'per_agent_query_budget': _PER_AGENT_QUERY_BUDGET,
+            'suggested_queries': _suggested_queries(path_label),
             'known_companies_skip': sorted(skip_companies),
             'known_companies_recheck': [
                 rc for rc in recheck_companies
@@ -284,21 +326,22 @@ def cmd_export_perpath(
                 f'You are searching for companies matching the "{path_label}" career path.\n'
                 f'{path_desc}\n\n'
                 'Follow this 4-step research protocol:\n'
-                '1. MARKET MAPPING: Find 10-15 prominent companies in this space using broad industry searches.\n'
-                '2. COMPETITOR EXPANSION: For the top 5 most promising companies, search for their competitors and alternatives.\n'
+                '1. MARKET MAPPING: Find prominent companies in this space using broad industry searches.\n'
+                '2. COMPETITOR EXPANSION: For the most promising companies, search for their competitors and alternatives.\n'
                 '3. FUNDING SWEEP: Search for companies in this space that received recent funding (last 12 months).\n'
                 '4. CAREERS CHECK: For each candidate company, check their careers page for relevant open roles.\n\n'
-                'Requirements:\n'
-                '- Minimum 8 companies in your results\n'
-                '- Maximum 15 web searches total\n'
-                '- Skip companies in known_companies_skip\n'
-                '- Re-check companies in known_companies_recheck if present\n'
-                '- We already track the companies in known_companies for this path. Focus your searches on finding companies we don\'t have yet.\n\n'
-                'SCORING: For each company, evaluate against references/criteria.md rubric:\n'
-                '- 10 yes/no/unknown dimensions. Score = (yes / evaluated) * 100.\n'
-                '- If <5 dimensions assessable, flag as "needs_research" instead of scoring.\n'
+                'Budget and quality rules:\n'
+                f'- Maximum {_PER_AGENT_QUERY_BUDGET} web searches total.\n'
+                f'- Return ONLY companies that score >= {_DISCOVER_MIN_SCORE} on the rubric. There is NO minimum count.\n'
+                '- If nothing meets the threshold after your searches, return an empty results array. DO NOT stretch to hit a quota.\n'
+                '- Skip companies in known_companies_skip.\n'
+                '- Re-check companies in known_companies_recheck if present.\n'
+                '- known_companies are already tracked — focus searches on companies not in that list.\n\n'
+                'SCORING: For each candidate, evaluate against references/criteria.md rubric:\n'
+                '- 10 dimensions, each scored 0-10. Total = sum (0-100).\n'
+                '- If fewer than 5 dimensions are assessable, set llm_flags to "needs_research" and skip scoring.\n'
                 '- Include llm_score, llm_dimensions_evaluated, llm_rationale, role_family, llm_flags, queries_used in each result.\n'
-                f'Write results to data/prospecting-results-{pack_key}.json as a JSON array.'
+                f'Write results to data/prospecting-results-{pack_key}.json using the wrapper format (_meta + results).'
             ),
             'results_schema': _RESULTS_SCHEMA,
         }
@@ -420,6 +463,11 @@ def _do_merge(results: List[Dict], data_dir: Path, dry_run: bool = False) -> int
             'llm_hard_pass': 'false',
             'llm_hard_pass_reason': '',
             'llm_evaluated_at': now_ts if r.get('llm_score') else '',
+            # Prospecting hits with active_role start ACTIVE; watch_list starts WATCHING
+            # with count=0 (one run of grace before they archive).
+            'lifecycle_state': 'active' if prospect_status == 'active_role' else 'watching',
+            'last_verified_at': now_ts if prospect_status == 'active_role' else '',
+            'watching_run_count': '0',
         }
         new_rows.append(row)
         if row.get('role_family'):
@@ -803,26 +851,30 @@ def cmd_export_expansion(
             f'Seed companies from pass 1: {seed_names}\n\n'
             'Follow this 3-step expansion protocol:\n\n'
             '1. COMPETITOR MINING: For each seed company, search "[company] competitors" '
-            'and "[company] alternatives". Find 3-5 new companies per seed.\n\n'
+            'and "[company] alternatives".\n\n'
             '2. INVESTOR PORTFOLIO MINING: For seeds with known funding, search '
             '"[investor name] portfolio companies" to find similar-stage companies '
             'in the same space.\n\n'
             '3. COMMUNITY/LIST MINING: Search for curated lists, directories, and '
             'communities in this space (e.g., "top [industry] startups 2026", '
             '"[industry] company directory").\n\n'
-            'Requirements:\n'
-            '- Skip companies in known_companies_skip\n'
-            '- Minimum 5 new companies in results\n'
-            '- Maximum 15 web searches total\n'
-            '- Check careers page for each candidate company\n\n'
+            'Budget and quality rules:\n'
+            f'- Maximum {_PER_AGENT_QUERY_BUDGET} web searches total.\n'
+            f'- Return ONLY companies that score >= {_DISCOVER_MIN_SCORE} on the rubric. There is NO minimum count.\n'
+            '- If nothing meets the threshold, return an empty results array. DO NOT force findings to hit a quota.\n'
+            '- Skip companies in known_companies_skip.\n'
+            '- Check careers page for each candidate company.\n\n'
             'SCORING: Same rubric as pass 1. Evaluate against references/criteria.md.\n'
-            f'Write results to data/prospecting-results-{pack_key}-expansion.json'
+            f'Write results to data/prospecting-results-{pack_key}-expansion.json using the wrapper format (_meta + results).'
         )
 
         context = {
             'path_key': pack_key,
             'path_label': path_label,
             'pass': 'expansion',
+            'discover_min_score': _DISCOVER_MIN_SCORE,
+            'per_agent_query_budget': _PER_AGENT_QUERY_BUDGET,
+            'suggested_queries': _suggested_queries(path_label),
             'seed_companies': seed_companies,
             'known_companies_skip': sorted(skip),
             'instructions': instructions,

@@ -401,84 +401,56 @@ def phase3() -> dict:
 
 
 def _generate_action_list(output_path: Path) -> None:
-    """Generate ranked action list CSV from target-companies + applications."""
+    """Generate ranked action list CSV from the shared dashboard_views helper."""
     import csv as _csv
+    sys.path.insert(0, str(SCRIPTS))
+    from dashboard_views import build_active_views
 
     target_csv = DATA / 'target-companies.csv'
     apps_csv = BASE.parent / 'job-tracker' / 'data' / 'applications.csv'
+    views = build_active_views(target_csv, apps_csv)
 
-    # Read applications
-    app_map = {}
-    if apps_csv.exists():
-        with apps_csv.open(encoding='utf-8') as f:
-            for row in _csv.DictReader(f):
-                key = (row.get('company', '').strip().lower())
-                if key:
-                    app_map[key] = {
-                        'status': row.get('status', ''),
-                        'date_added': row.get('date_added', ''),
-                        'last_contact': row.get('last_contact', ''),
-                        'contact_name': row.get('contact_name', ''),
-                    }
+    best_fits = views['best_fits']
+    stats = views['stats']
 
-    # Read targets (pass only)
-    rows = []
-    with target_csv.open(encoding='utf-8') as f:
-        for row in _csv.DictReader(f):
-            if row.get('validation_status') != 'pass':
-                continue
-            company = row.get('company', '').strip()
-            key = company.lower()
-            app = app_map.get(key, {})
-
-            llm = row.get('llm_score', '').strip()
-            try:
-                score = float(llm) if llm else 0
-            except (ValueError, TypeError):
-                score = 0
-
-            rows.append({
-                'rank': '',
-                'priority': 'HIGH' if score >= 75 else ('MED' if score >= 60 else 'LOW'),
-                'company': company,
-                'llm_score': llm,
-                'path': row.get('role_family', ''),
-                'role': row.get('open_positions', ''),
-                'apply_url': row.get('role_url', '').strip() or row.get('careers_url', ''),
-                'applied_status': app.get('status', 'not_applied'),
-                'applied_date': app.get('date_added', ''),
-                'last_contact': app.get('last_contact', ''),
-                'contact_name': app.get('contact_name', ''),
-                'fit_summary': row.get('llm_rationale', ''),
-                'red_flags': row.get('llm_flags', ''),
-            })
-
-    rows.sort(key=lambda r: float(r['llm_score'] or 0), reverse=True)
-    for i, r in enumerate(rows, 1):
-        r['rank'] = str(i)
+    csv_rows = []
+    for i, r in enumerate(best_fits, 1):
+        score_raw = (r.get('llm_score') or '').strip()
+        try:
+            score = float(score_raw) if score_raw else 0.0
+        except (ValueError, TypeError):
+            score = 0.0
+        csv_rows.append({
+            'rank': str(i),
+            'priority': 'HIGH' if score >= 85 else 'MED',
+            'company': r.get('company', ''),
+            'llm_score': score_raw,
+            'path': r.get('role_family', ''),
+            'role': r.get('open_positions', ''),
+            'apply_url': (r.get('role_url') or '').strip() or (r.get('careers_url') or '').strip(),
+            'has_role_url': 'yes' if (r.get('role_url') or '').strip() else '',
+            'applied_status': r.get('app_status', '') or 'not_applied',
+            'applied_date': r.get('date_added', ''),
+            'last_contact': r.get('last_contact', ''),
+            'contact_name': r.get('contact_name', ''),
+            'fit_summary': r.get('llm_rationale', ''),
+            'red_flags': r.get('llm_flags', ''),
+        })
 
     header = [
-        'rank', 'priority', 'company', 'llm_score', 'path', 'role', 'apply_url',
-        'applied_status', 'applied_date', 'last_contact', 'contact_name',
-        'fit_summary', 'red_flags',
+        'rank', 'priority', 'company', 'llm_score', 'path', 'role',
+        'apply_url', 'has_role_url', 'applied_status', 'applied_date',
+        'last_contact', 'contact_name', 'fit_summary', 'red_flags',
     ]
 
     with output_path.open('w', newline='', encoding='utf-8') as f:
         w = _csv.DictWriter(f, fieldnames=header)
         w.writeheader()
-        w.writerows(rows)
-
-    high = sum(1 for r in rows if r['priority'] == 'HIGH')
-    med = sum(1 for r in rows if r['priority'] == 'MED')
-    low = sum(1 for r in rows if r['priority'] == 'LOW')
-    not_applied = sum(1 for r in rows if r['applied_status'] == 'not_applied')
+        w.writerows(csv_rows)
 
     print(f"\n  Action list: {output_path.name}")
-    print(f"  Total: {len(rows)} companies")
-    print(f"    HIGH (75+): {high}")
-    print(f"    MED (60-74): {med}")
-    print(f"    LOW (<60):  {low}")
-    print(f"  Not yet applied: {not_applied}")
+    print(f"  Best Fits (score >= 70): {stats['best_fits']}")
+    print(f"  Total rows: {len(csv_rows)}")
 
 
 def _log_run(phase: str, exit_code: int, start_time: datetime, results: dict) -> None:

@@ -632,31 +632,15 @@ def build_pipeline_table(rows: list[dict]) -> str:
 </table>'''
 
 
-def compute_stats(merged: list[dict]) -> dict:
-    """Compute dashboard statistics from merged data."""
-    followup = [r for r in merged if get_section(r) == 'followup']
-    closed_out = [r for r in merged if get_section(r) == 'closed_out']
-    bestfits = [r for r in merged if get_section(r) == 'bestfits']
-    stale = [r for r in followup if classify_staleness(r) in ('stale', 'warm')]
-
-    return {
-        'need_followup': len(stale),
-        'applied': len(followup),
-        'closed_out': len(closed_out),
-        'to_explore': len(bestfits),
-        'total': len(followup) + len(closed_out) + len(bestfits),
-    }
-
-
-def build_html(merged: list[dict], full_mode: bool) -> str:
-    """Build the complete HTML dashboard string."""
-    stats = compute_stats(merged)
+def build_html_from_views(views: dict, full_mode: bool) -> str:
+    """Build the complete HTML dashboard string from pre-filtered views."""
+    stats = views['stats']
     run_date = datetime.now().strftime('%Y-%m-%d %H:%M')
     title = 'Career Dashboard (Full)' if full_mode else 'Career Dashboard'
 
-    followup_rows = [r for r in merged if get_section(r) == 'followup']
-    closed_out_rows = [r for r in merged if get_section(r) == 'closed_out']
-    bestfit_rows = [r for r in merged if get_section(r) == 'bestfits']
+    followup_rows = views['follow_up']
+    closed_out_rows = views['closed_out']
+    bestfit_rows = views['best_fits']
     limit = 0 if full_mode else 3
 
     # Load display_groups from search-config.json if available
@@ -670,20 +654,15 @@ def build_html(merged: list[dict], full_mode: bool) -> str:
         except (json.JSONDecodeError, OSError):
             display_groups = None
 
+    stale_count = sum(1 for r in followup_rows if classify_staleness(r) in ('stale', 'warm'))
+
     followup_html = build_followup_cards(followup_rows)
     closed_out_html = build_closed_out_cards(closed_out_rows)
     bestfits_html = build_bestfits_section(bestfit_rows, limit_per_path=limit, display_groups=display_groups)
-    pipeline_html = build_pipeline_table(merged)
 
-    # Watch list section
-    watch_rows = read_watch_list_companies()
-    if watch_rows:
-        watch_enriched = merge_data(watch_rows, read_applications())
-        watch_list_html = build_watch_list_section(watch_enriched)
-    else:
-        watch_list_html = ''
-
-    stale_count = sum(1 for r in followup_rows if classify_staleness(r) in ('stale', 'warm'))
+    # Full pipeline table: all visible rows combined
+    all_visible = followup_rows + bestfit_rows
+    pipeline_html = build_pipeline_table(all_visible)
 
     brand_css = read_brand_css()
     css = _get_css()
@@ -710,16 +689,16 @@ def build_html(merged: list[dict], full_mode: bool) -> str:
 
 <div class="stats">
   <div class="stat alert stat-clickable" id="pillFollowup">
-    <div class="value">{stats['need_followup']}</div>
+    <div class="value">{stale_count}</div>
     <div class="label">Need Follow-up</div>
   </div>
   <div class="stat active stat-clickable" id="pillApplied">
-    <div class="value">{stats['applied']}</div>
+    <div class="value">{stats['follow_up']}</div>
     <div class="label">Applied</div>
   </div>
   <div class="stat stat-clickable" id="pillExplore">
-    <div class="value">{stats['to_explore']}</div>
-    <div class="label">To Explore</div>
+    <div class="value">{stats['best_fits']}</div>
+    <div class="label">Best Fits</div>
   </div>
   <div class="stat good stat-clickable" id="pillPipeline">
     <div class="value">{stats['total']}</div>
@@ -740,8 +719,8 @@ def build_html(merged: list[dict], full_mode: bool) -> str:
 
 <div class="section" id="bestFitsSection">
   <div class="section-header">
-    <h2>Best Fits to Explore</h2>
-    <span class="badge-muted">{stats['to_explore']} not yet applied</span>
+    <h2>Best Fits</h2>
+    <span class="badge-muted">{stats['best_fits']} companies scoring 70+</span>
   </div>
   {bestfits_html}
 </div>
@@ -757,8 +736,6 @@ def build_html(merged: list[dict], full_mode: bool) -> str:
   {pipeline_html}
   </div>
 </div>
-
-{watch_list_html}
 
 <p class="generated">Generated {run_date}</p>
 
@@ -1051,20 +1028,57 @@ def _get_js() -> str:
 })();'''
 
 
+# Backward-compat aliases for existing dashboard tests
+def compute_stats(merged: list[dict]) -> dict:
+    followup = [r for r in merged if get_section(r) == 'followup']
+    closed_out = [r for r in merged if get_section(r) == 'closed_out']
+    bestfits = [r for r in merged if get_section(r) == 'bestfits']
+    stale = [r for r in followup if classify_staleness(r) in ('stale', 'warm')]
+    return {
+        'need_followup': len(stale),
+        'applied': len(followup),
+        'closed_out': len(closed_out),
+        'to_explore': len(bestfits),
+        'total': len(followup) + len(closed_out) + len(bestfits),
+    }
+
+
+def build_html(merged: list[dict], full_mode: bool) -> str:
+    """Backward-compat: convert old-style merged list to views dict."""
+    follow_up = [r for r in merged if get_section(r) == 'followup']
+    closed_out = [r for r in merged if get_section(r) == 'closed_out']
+    bestfits = [r for r in merged if get_section(r) == 'bestfits']
+    views = {
+        'follow_up': follow_up,
+        'best_fits': bestfits,
+        'closed_out': closed_out,
+        'stats': {
+            'follow_up': len(follow_up),
+            'best_fits': len(bestfits),
+            'closed_out': len(closed_out),
+            'total': len(follow_up) + len(bestfits) + len(closed_out),
+        },
+    }
+    return build_html_from_views(views, full_mode)
+
+
 def main():
     parser = argparse.ArgumentParser(description='Generate career manager dashboard')
     parser.add_argument('--full', action='store_true', help='Show all companies per path')
     args = parser.parse_args()
 
-    print("\n[Dashboard] Reading CSV data...")
+    print("\n[Dashboard] Building views from target-companies.csv + applications.csv...")
 
-    targets = read_target_companies()
-    apps = read_applications()
-    merged = merge_data(targets, apps)
+    from dashboard_views import build_active_views
 
-    print(f"  {len(targets)} target companies, {len(apps)} applications")
+    target_csv = DATA / 'target-companies.csv'
+    apps_csv = TRACKER_DATA / 'applications.csv'
+    views = build_active_views(target_csv, apps_csv)
+    stats = views['stats']
 
-    html_content = build_html(merged, full_mode=args.full)
+    print(f"  Follow-up: {stats['follow_up']} | Best Fits: {stats['best_fits']} | Closed: {stats['closed_out']}")
+
+    html_content = build_html_from_views(views, full_mode=args.full)
 
     if args.full:
         output_path = DATA / 'dashboard-full.html'

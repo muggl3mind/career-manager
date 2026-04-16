@@ -33,17 +33,24 @@ SEEN_COMPANIES = DATA / 'seen-companies.json'
 MONITOR_CONTEXT = DATA / 'monitor-context.json'
 MONITOR_RESULTS = DATA / 'monitor-results.json'
 
-DEFAULT_STALE_DAYS = 7
+DEFAULT_STALE_DAYS = 14  # kept for backward-compat CLI arg; ignored by re-verify mode
 
 # Load search config
 import sys as _sys
 _sys.path.insert(0, str(BASE / 'scripts' / 'core'))
+_sys.path.insert(0, str(BASE.parent / 'scripts'))
 from search_config_loader import load_search_config
 from path_normalizer import normalize_path, normalize_company
 from company_dedup import find_existing, merge_into_existing
+try:
+    from config_loader import get as _pipeline_cfg
+except Exception:
+    _pipeline_cfg = lambda key, default=None: default  # noqa: E731
 
 _SEARCH_CONFIG = load_search_config(DATA / 'search-config.json')
 _CANONICAL_PATHS = [v['label'] for v in _SEARCH_CONFIG['query_packs'].values()] if _SEARCH_CONFIG else []
+
+_ARCHIVE_GRACE_RUNS = _pipeline_cfg('pipeline.lifecycle.archive_grace_runs', 2)
 
 # Import from web_prospecting (which now loads from search-config.json)
 try:
@@ -230,9 +237,13 @@ def _build_company_registry(
 
 
 def cmd_export(stale_days: int = DEFAULT_STALE_DAYS) -> int:
-    """Build monitor-context.json with companies that need re-checking."""
+    """
+    Build monitor-context.json with ALL companies currently in 'active' or 'watching'
+    lifecycle states. Every run re-verifies all of them — no stale-days gate.
+
+    The stale_days arg is retained for backward-compat but ignored.
+    """
     now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(days=stale_days)
 
     seen = _load_seen()
     target_rows = _read_csv(TARGET_CSV)
@@ -240,15 +251,38 @@ def cmd_export(stale_days: int = DEFAULT_STALE_DAYS) -> int:
 
     registry = _build_company_registry(seen, target_rows, app_rows)
 
-    # Identify stale companies
-    stale = []
-    fresh = []
+    # Build lookup of lifecycle_state by company (lower-case)
+    lifecycle_by_key: Dict[str, str] = {}
+    for row in target_rows:
+        name = (row.get('company') or '').strip().lower()
+        if not name:
+            continue
+        state = (row.get('lifecycle_state') or '').strip()
+        if not state:
+            # Pre-migration fallback: pass → active, everything else → watching
+            state = 'active' if row.get('validation_status') == 'pass' else 'watching'
+        lifecycle_by_key[name] = state
+
+    # Build checklist: every company in 'active' or 'watching' state
+    checklist = []
+    archived_skipped = 0
     for key, info in sorted(registry.items()):
+        state = lifecycle_by_key.get(key)
+        # Companies in seen_cache or application-only with no CSV row default to 'active'
+        # (we want to verify them too).
+        if state is None:
+            state = 'active'
+
+        if state == 'archived':
+            archived_skipped += 1
+            continue
+
         last_checked = _get_last_checked(key, seen, target_rows)
         days_since = (now - last_checked).days if last_checked else 999
 
         info['last_checked'] = last_checked.isoformat() if last_checked else None
         info['days_since_check'] = days_since
+        info['lifecycle_state'] = state
 
         path_num = info.get('path', 0)
         info['check_instructions'] = PATH_CHECK_INSTRUCTIONS.get(
@@ -256,35 +290,46 @@ def cmd_export(stale_days: int = DEFAULT_STALE_DAYS) -> int:
             'Check careers page for AI, Product Manager, Solutions, Innovation roles.',
         )
 
-        has_needs_recheck = 'needs_recheck' in (info.get('llm_flags') or '')
-        if last_checked is None or last_checked < cutoff or has_needs_recheck:
-            stale.append(info)
-        else:
-            fresh.append(info)
+        checklist.append(info)
 
-    # Sort stale: applied companies first, then never-checked, then oldest
-    def _stale_sort(x):
+    # Sort: applied companies first, then watching (need attention), then active oldest-first
+    def _sort(x):
         is_applied = x.get('app_status', '') == 'applied'
-        return (0 if is_applied else 1, x['last_checked'] or '', x['company'].lower())
-    stale.sort(key=_stale_sort)
+        is_watching = x.get('lifecycle_state') == 'watching'
+        return (0 if is_applied else 1, 0 if is_watching else 1,
+                x.get('last_checked') or '', x['company'].lower())
+    checklist.sort(key=_sort)
 
     context = {
-        'mode': 'monitor',
+        'mode': 'monitor_reverify',
         'generated_at': now.isoformat(),
-        'stale_threshold_days': stale_days,
+        'archive_grace_runs': _ARCHIVE_GRACE_RUNS,
         'total_companies_tracked': len(registry),
-        'companies_to_check': len(stale),
-        'companies_fresh': len(fresh),
-        'checklist': stale,
+        'companies_to_check': len(checklist),
+        'archived_skipped': archived_skipped,
+        'checklist': checklist,
         'role_patterns': ROLE_PATTERNS,
         'instructions': (
+            'RE-VERIFY PASS — you are confirming which tracked companies still have open roles.\n'
+            '\n'
             'For EACH company in the checklist below, you MUST:\n'
-            '1. Visit their careers page (use the careers_url if provided, otherwise search "[company] careers")\n'
-            '2. Search for roles matching the role_patterns and check_instructions\n'
-            '3. Score the company against references/criteria.md (10 yes/no/unknown dimensions)\n'
-            '4. Report what you find — even if no new roles, report "no_change" to update last_checked\n'
+            '1. Visit their careers page (use careers_url if provided, otherwise search "[company] careers").\n'
+            '2. Check whether relevant roles (matching role_patterns and check_instructions) are still open.\n'
+            '3. Score the company against references/criteria.md (10 dimensions, 0-10 each).\n'
+            '4. Report the outcome using the status values below.\n'
             '\n'
             'Write ALL results to data/monitor-results.json as a JSON array.\n'
+            '\n'
+            'Status values and what they mean for lifecycle state:\n'
+            '  - "active_role": role confirmed open right now → company stays/becomes ACTIVE, watching_count resets.\n'
+            '  - "no_change":   careers page reachable, nothing has changed since last check → stays ACTIVE.\n'
+            '  - "watch_list":  careers page reachable but relevant roles are NOT currently open → flips to WATCHING.\n'
+            '                    After too many consecutive runs in WATCHING, company is archived.\n'
+            '\n'
+            'If the careers page is unreachable (JS portal, timeout, rate-limited), set status="no_change" '
+            'AND add "fetch_empty" to llm_flags. This preserves the prior last_verified_at so the row is not '
+            'falsely counted as fresh.\n'
+            '\n'
             'Each result must have this structure:\n'
             '{\n'
             '  "company": "Company Name",\n'
@@ -303,13 +348,7 @@ def cmd_export(stale_days: int = DEFAULT_STALE_DAYS) -> int:
             '  "llm_flags": "comp_unknown"\n'
             '}\n'
             '\n'
-            'status values:\n'
-            '- "active_role": Found relevant open roles\n'
-            '- "watch_list": No relevant roles right now but company is a fit\n'
-            '- "no_change": Already tracked, no new roles found (scoring fields optional)\n'
-            '\n'
-            'Scoring: For each dimension in criteria.md, assess yes/no/unknown.\n'
-            'Score = (yes count / evaluated count) * 100, rounded.\n'
+            'Scoring: For each dimension in criteria.md, score 0-10. Total = sum (0-100).\n'
             'If <5 dimensions can be evaluated, use llm_flags: "needs_research" and omit llm_score.\n'
         ),
         'results_path': str(MONITOR_RESULTS),
@@ -319,20 +358,78 @@ def cmd_export(stale_days: int = DEFAULT_STALE_DAYS) -> int:
     with MONITOR_CONTEXT.open('w', encoding='utf-8') as f:
         json.dump(context, f, indent=2, ensure_ascii=False)
 
-    print(f'[monitor] export done')
+    watching_count = sum(1 for c in checklist if c.get('lifecycle_state') == 'watching')
+    active_count = sum(1 for c in checklist if c.get('lifecycle_state') == 'active')
+    print(f'[monitor] re-verify export done')
     print(f'  total companies tracked: {len(registry)}')
-    print(f'  need re-check (>{stale_days} days): {len(stale)}')
-    print(f'  fresh (checked within {stale_days} days): {len(fresh)}')
+    print(f'  to check this run:       {len(checklist)}')
+    print(f'    active:                {active_count}')
+    print(f'    watching:              {watching_count}')
+    print(f'  archived (skipped):      {archived_skipped}')
     print(f'  context written to: {MONITOR_CONTEXT}')
     print()
-    print('Next: Claude reads monitor-context.json, checks careers pages,')
+    print('Next: Claude reads monitor-context.json, re-verifies careers pages,')
     print('      and writes monitor-results.json')
     print(f'Then: python3 scripts/ops/monitor_watchlist.py merge')
     return 0
 
 
+def _apply_lifecycle_transition(
+    row: Dict,
+    result: Dict,
+    archive_grace_runs: int,
+    now_ts: str,
+) -> str:
+    """
+    Set row's lifecycle_state, last_verified_at, watching_run_count based on monitor result.
+    Mutates row in place. Returns the new state.
+
+    Rules:
+      status=active_role            → active, last_verified_at=now, watching_count=0
+      status=no_change (reachable)  → active, last_verified_at=now, watching_count=0
+      status=no_change + fetch_empty→ flip to watching, increment count (page unreachable)
+      status=watch_list             → flip to watching, increment count (role closed)
+
+    Any company that hits watching_run_count >= archive_grace_runs is archived.
+    """
+    status = (result.get('status') or 'no_change').strip()
+    flags = (result.get('llm_flags') or '').split('|')
+    fetch_empty = 'fetch_empty' in flags
+
+    try:
+        watching_count = int(row.get('watching_run_count') or '0')
+    except (ValueError, TypeError):
+        watching_count = 0
+
+    successful_verify = (
+        status == 'active_role'
+        or (status == 'no_change' and not fetch_empty)
+    )
+
+    if successful_verify:
+        row['lifecycle_state'] = 'active'
+        row['last_verified_at'] = now_ts
+        row['watching_run_count'] = '0'
+        return 'active'
+
+    # Failed verify: role closed or page unreachable. Increment, keep last_verified_at.
+    watching_count += 1
+    row['watching_run_count'] = str(watching_count)
+    if watching_count >= archive_grace_runs:
+        row['lifecycle_state'] = 'archived'
+        return 'archived'
+    row['lifecycle_state'] = 'watching'
+    return 'watching'
+
+
 def cmd_merge(dry_run: bool = False) -> int:
-    """Merge monitor-results.json into target-companies.csv."""
+    """
+    Merge monitor-results.json into target-companies.csv.
+
+    Applies lifecycle state transitions:
+      - successful verify → active
+      - role closed / page unreachable → watching (or archived after grace period)
+    """
     if not MONITOR_RESULTS.exists():
         print(f'ERROR: {MONITOR_RESULTS} not found. Claude must write it first.')
         return 1
@@ -348,6 +445,7 @@ def cmd_merge(dry_run: bool = False) -> int:
     updated = 0
     added = 0
     no_change = 0
+    transitions = {'active': 0, 'watching': 0, 'archived': 0}
 
     for r in results:
         company = normalize_company((r.get('company') or '').strip())
@@ -372,35 +470,48 @@ def cmd_merge(dry_run: bool = False) -> int:
 
         match = find_existing(company, existing_rows)
 
-        if status == 'no_change':
-            if match:
-                match['last_checked'] = today
-            no_change += 1
-            continue
-
         if match:
-            # Merge new data into existing row
-            merge_data = {
-                'open_positions': open_positions,
-                'llm_score': str(r.get('llm_score', '')) if r.get('llm_score') is not None else '',
-                'llm_rationale': r.get('llm_rationale', ''),
-                'llm_flags': r.get('llm_flags', ''),
-                'role_url': r.get('role_url', ''),
-                'careers_url': careers_url,
-                'role_family': r.get('role_family', '') or r.get('llm_path_name', '') or r.get('path_name', ''),
-                'last_checked': today,
-            }
-            if r.get('llm_score'):
-                merge_data['llm_evaluated_at'] = now_ts
-            merge_into_existing(match, merge_data)
-            # Promote watch_list to pass if active roles found
-            if status == 'active_role' and match.get('validation_status') == 'watch_list':
-                match['validation_status'] = 'pass'
-            if r.get('notes'):
-                existing_notes = match.get('notes', '')
-                match['notes'] = f"{existing_notes} | monitor {today}: {r['notes']}" if existing_notes else f"monitor {today}: {r['notes']}"
-            updated += 1
+            # Always update last_checked (legacy field, UI still uses it) unless fetch_empty
+            flags = (r.get('llm_flags', '') or '').split('|')
+            fetch_empty = 'fetch_empty' in flags
+            if not fetch_empty:
+                match['last_checked'] = today
+
+            # Only merge richer data if we got a real update (not no_change)
+            if status != 'no_change':
+                merge_data = {
+                    'open_positions': open_positions,
+                    'llm_score': str(r.get('llm_score', '')) if r.get('llm_score') is not None else '',
+                    'llm_rationale': r.get('llm_rationale', ''),
+                    'llm_flags': r.get('llm_flags', ''),
+                    'role_url': r.get('role_url', ''),
+                    'careers_url': careers_url,
+                    'role_family': r.get('role_family', '') or r.get('llm_path_name', '') or r.get('path_name', ''),
+                    'last_checked': today,
+                }
+                if r.get('llm_score'):
+                    merge_data['llm_evaluated_at'] = now_ts
+                merge_into_existing(match, merge_data)
+                # Promote watch_list validation_status to pass if active roles found
+                if status == 'active_role' and match.get('validation_status') == 'watch_list':
+                    match['validation_status'] = 'pass'
+                if r.get('notes'):
+                    existing_notes = match.get('notes', '')
+                    match['notes'] = (
+                        f"{existing_notes} | monitor {today}: {r['notes']}"
+                        if existing_notes else f"monitor {today}: {r['notes']}"
+                    )
+                updated += 1
+            else:
+                no_change += 1
+
+            new_state = _apply_lifecycle_transition(match, r, _ARCHIVE_GRACE_RUNS, now_ts)
+            transitions[new_state] = transitions.get(new_state, 0) + 1
         else:
+            if status == 'no_change':
+                # No-change on a company we don't have a CSV row for — nothing to do
+                no_change += 1
+                continue
             # New company — add to target list
             is_watch = status == 'watch_list' or not open_positions
             new_row = {
@@ -428,11 +539,15 @@ def cmd_merge(dry_run: bool = False) -> int:
                 'llm_hard_pass': 'false',
                 'llm_hard_pass_reason': '',
                 'llm_evaluated_at': now_ts if r.get('llm_score') else '',
+                'lifecycle_state': 'active' if status == 'active_role' else 'watching',
+                'last_verified_at': now_ts if status == 'active_role' else '',
+                'watching_run_count': '0' if status == 'active_role' else '1',
             }
             if new_row.get('role_family'):
                 new_row['role_family'] = normalize_path(new_row['role_family'], _CANONICAL_PATHS)
             existing_rows.append(new_row)
             added += 1
+            transitions[new_row['lifecycle_state']] = transitions.get(new_row['lifecycle_state'], 0) + 1
 
     # Re-sort: pass rows by score desc, watch_list by name
     pass_rows = sorted(
@@ -453,6 +568,10 @@ def cmd_merge(dry_run: bool = False) -> int:
     print(f'  updated existing: {updated}')
     print(f'  added new:        {added}')
     print(f'  no change:        {no_change}')
+    print(f'  lifecycle transitions this run:')
+    print(f'    active:   {transitions.get("active", 0)}')
+    print(f'    watching: {transitions.get("watching", 0)}')
+    print(f'    archived: {transitions.get("archived", 0)}')
     print(f'  total in target-companies.csv: {len(final_rows)}')
 
     # Normalize company names and paths before writing

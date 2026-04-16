@@ -99,7 +99,10 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--dry-run', action='store_true')
     args = ap.parse_args()
+    return cmd_apply(dry_run=args.dry_run)
 
+
+def cmd_apply(dry_run: bool = False) -> int:
     if not EVAL_RESULTS.exists():
         print(f"ERROR: {EVAL_RESULTS} not found. Claude must write eval-results.json first.")
         return 1
@@ -231,6 +234,9 @@ def main() -> int:
             'llm_hard_pass': 'false',
             'llm_hard_pass_reason': '',
             'llm_evaluated_at': now_ts,
+            'lifecycle_state': 'active',
+            'last_verified_at': now_ts,
+            'watching_run_count': '0',
         }
         target_rows.append(new_row)
         # Also update seen-jobs cache for new rows
@@ -257,6 +263,7 @@ def main() -> int:
         if row.get('careers_url') in hard_pass_urls:
             row['exclusion_reason'] = 'llm_hard_pass'
             row['validation_status'] = 'fail'
+            row['lifecycle_state'] = 'archived'
             raw_rows.append(row)
             print(f"  [hard_pass] {row.get('company')} — {row.get('open_positions')}")
         else:
@@ -274,7 +281,7 @@ def main() -> int:
 
     print(f"\nResults: {updated} evaluated | {added} added | {len(hard_pass_urls)} hard-pass removed | {len(final_target)} in target list")
 
-    if not args.dry_run:
+    if not dry_run:
         _write_csv(TARGET_CSV, final_target, HEADER)
         _write_csv(RAW_CSV, raw_rows, HEADER)
         with SEEN_JOBS.open('w', encoding='utf-8') as f:

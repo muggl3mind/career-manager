@@ -774,7 +774,9 @@ class TestActionListRoleUrl:
                 'careers_url': 'https://withouturl.com/careers',
                 'role_url': '',
                 'open_positions': 'Solutions Architect',
-                'llm_score': '80',
+                # Score must meet watch_min_score (85) since there's no role_url —
+                # action list now sections by role_url presence.
+                'llm_score': '90',
             })
 
         action_path = tmp_path / "action-list.csv"
