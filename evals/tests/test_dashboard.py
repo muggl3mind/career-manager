@@ -324,7 +324,7 @@ class TestBuildBestFits:
         assert 'AI' in html_out
         assert 'Finance' in html_out
 
-    def test_all_companies_rendered_in_collapsed_group(self):
+    def test_all_companies_rendered_in_group(self):
         rows = [
             self._make_row('A', 90, 'AI'),
             self._make_row('B', 85, 'AI'),
@@ -332,18 +332,30 @@ class TestBuildBestFits:
             self._make_row('D', 75, 'AI'),
         ]
         html_out = build_bestfits_section(rows, limit_per_path=3)
-        # All companies rendered (inside collapsed path group)
+        # All companies rendered (inside path group)
         assert 'A' in html_out
         assert 'B' in html_out
         assert 'C' in html_out
         assert 'D' in html_out
-        # Path groups are collapsed by default
-        assert 'display:none' in html_out
 
-    def test_expand_all_toggle_present(self):
+    def test_auto_expand_when_small(self):
         rows = [self._make_row('A', 90, 'AI')]
         html_out = build_bestfits_section(rows, limit_per_path=3)
+        # Small count auto-expands: display:block and "Collapse All"
+        assert 'display:block' in html_out
+        assert 'Collapse All' in html_out
+
+    def test_collapsed_when_large(self):
+        rows = [self._make_row(f'Co{i}', 90 - i, 'AI') for i in range(60)]
+        html_out = build_bestfits_section(rows, limit_per_path=0)
+        # Large count stays collapsed: display:none and "Expand All"
+        assert 'display:none' in html_out
         assert 'Expand All' in html_out
+
+    def test_toggle_all_button_present(self):
+        rows = [self._make_row('A', 90, 'AI')]
+        html_out = build_bestfits_section(rows, limit_per_path=3)
+        assert 'toggleAllBtn' in html_out
 
     def test_paths_ordered_by_highest_score(self):
         rows = [

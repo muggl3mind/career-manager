@@ -88,7 +88,7 @@ class TestSectioning:
 
 
 class TestThresholds:
-    def test_below_min_dropped(self, tmp_path):
+    def test_below_min_goes_to_worth_exploring(self, tmp_path):
         _write_target(tmp_path / 't.csv', [
             {'company': 'A', 'role_url': 'https://a.com/jobs/1',
              'validation_status': 'pass', 'llm_score': '65', 'lifecycle_state': 'active'},
@@ -96,6 +96,18 @@ class TestThresholds:
         _write_apps(tmp_path / 'a.csv', [])
         views = build_active_views(tmp_path / 't.csv', tmp_path / 'a.csv', _cfg())
         assert views['best_fits'] == []
+        assert len(views['worth_exploring']) == 1
+        assert views['worth_exploring'][0]['company'] == 'A'
+
+    def test_below_explore_min_dropped(self, tmp_path):
+        _write_target(tmp_path / 't.csv', [
+            {'company': 'A', 'role_url': 'https://a.com/jobs/1',
+             'validation_status': 'pass', 'llm_score': '40', 'lifecycle_state': 'active'},
+        ])
+        _write_apps(tmp_path / 'a.csv', [])
+        views = build_active_views(tmp_path / 't.csv', tmp_path / 'a.csv', _cfg())
+        assert views['best_fits'] == []
+        assert views['worth_exploring'] == []
 
     def test_custom_threshold_respected(self, tmp_path):
         _write_target(tmp_path / 't.csv', [

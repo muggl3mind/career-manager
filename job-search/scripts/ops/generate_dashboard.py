@@ -446,6 +446,9 @@ def build_bestfits_section(rows: list[dict], limit_per_path: int = 3, display_gr
         reverse=True,
     )
 
+    # Auto-expand when total count is small enough to scan visually
+    auto_expand = len(rows) < 50
+
     sections = []
     for path in sorted_paths:
         group = path_groups[path]
@@ -481,18 +484,70 @@ def build_bestfits_section(rows: list[dict], limit_per_path: int = 3, display_gr
         path_id = escape(path.replace(' ', '-').lower())
         count = len(group)
 
+        display = 'block' if auto_expand else 'none'
+        toggle_cls = ' class="open"' if auto_expand else ''
+
         sections.append(f'''<div class="path-group" data-path-id="{path_id}">
   <div class="path-label" data-toggle-path="{path_id}">
-    <span class="path-toggle" id="toggle-{path_id}">&#9654;</span>
+    <span class="path-toggle{' open' if auto_expand else ''}" id="toggle-{path_id}">&#9654;</span>
     {escape(path)} <span class="path-count">({count})</span>
   </div>
-  <div class="path-content" id="content-{path_id}" style="display:none">
+  <div class="path-content" id="content-{path_id}" style="display:{display}">
     {"".join(all_rows_html)}
   </div>
 </div>''')
 
-    toggle_all = '<div class="toggle-all" id="toggleAllBtn">Expand All</div>'
+    btn_text = 'Collapse All' if auto_expand else 'Expand All'
+    toggle_all = f'<div class="toggle-all" id="toggleAllBtn">{btn_text}</div>'
     return toggle_all + '\n'.join(sections)
+
+
+def build_worth_exploring_section(rows: list[dict]) -> str:
+    """Build HTML for Worth Exploring section: active companies scoring 50-69."""
+    if not rows:
+        return '<p class="empty-message">No companies in the 50-69 range right now.</p>'
+
+    table_rows = []
+    for r in rows:
+        company = escape(r.get('company', ''))
+        score = get_score(r)
+        color = score_color(score)
+        path = escape(r.get('role_family', '').strip() or 'Other')
+        rationale = r.get('llm_rationale', '') or ''
+        if len(rationale) > 150:
+            rationale = rationale[:147] + '...'
+        rationale = escape(rationale)
+
+        display_roles, role_count = parse_roles(r.get('open_positions', ''))
+        role_text = escape(', '.join(display_roles[:2])) if display_roles else '-'
+        if role_count > 2:
+            role_text += f' <span class="role-extra">(+{role_count - 2})</span>'
+
+        url = (r.get('role_url', '') or r.get('careers_url', '')).strip()
+        company_el = f'<a href="{escape(url)}" target="_blank">{company}</a>' if url else company
+
+        table_rows.append(f'''<tr>
+  <td>{company_el}</td>
+  <td class="{color}">{format_score(score)}</td>
+  <td>{path}</td>
+  <td class="pipeline-roles">{role_text}</td>
+  <td class="we-rationale">{rationale}</td>
+</tr>''')
+
+    return f'''<table class="pipeline-table worth-exploring-table">
+<thead>
+<tr>
+  <th>Company</th>
+  <th>Score</th>
+  <th>Path</th>
+  <th>Roles</th>
+  <th>Why</th>
+</tr>
+</thead>
+<tbody>
+{"".join(table_rows)}
+</tbody>
+</table>'''
 
 
 def build_watch_list_section(rows: list[dict]) -> str:
@@ -641,6 +696,7 @@ def build_html_from_views(views: dict, full_mode: bool) -> str:
     followup_rows = views['follow_up']
     closed_out_rows = views['closed_out']
     bestfit_rows = views['best_fits']
+    worth_exploring_rows = views.get('worth_exploring', [])
     limit = 0 if full_mode else 3
 
     # Load display_groups from search-config.json if available
@@ -659,9 +715,10 @@ def build_html_from_views(views: dict, full_mode: bool) -> str:
     followup_html = build_followup_cards(followup_rows)
     closed_out_html = build_closed_out_cards(closed_out_rows)
     bestfits_html = build_bestfits_section(bestfit_rows, limit_per_path=limit, display_groups=display_groups)
+    worth_exploring_html = build_worth_exploring_section(worth_exploring_rows)
 
     # Full pipeline table: all visible rows combined
-    all_visible = followup_rows + bestfit_rows
+    all_visible = followup_rows + bestfit_rows + worth_exploring_rows
     pipeline_html = build_pipeline_table(all_visible)
 
     brand_css = read_brand_css()
@@ -700,6 +757,10 @@ def build_html_from_views(views: dict, full_mode: bool) -> str:
     <div class="value">{stats['best_fits']}</div>
     <div class="label">Best Fits</div>
   </div>
+  <div class="stat stat-clickable" id="pillWorthExploring">
+    <div class="value">{stats.get('worth_exploring', 0)}</div>
+    <div class="label">Worth Exploring</div>
+  </div>
   <div class="stat good stat-clickable" id="pillPipeline">
     <div class="value">{stats['total']}</div>
     <div class="label">Total Pipeline</div>
@@ -723,6 +784,16 @@ def build_html_from_views(views: dict, full_mode: bool) -> str:
     <span class="badge-muted">{stats['best_fits']} companies scoring 70+</span>
   </div>
   {bestfits_html}
+</div>
+
+<div class="divider"></div>
+
+<div class="section" id="worthExploringSection" style="display:none">
+  <div class="section-header">
+    <h2>Worth Exploring</h2>
+    <span class="badge-muted">{stats.get('worth_exploring', 0)} companies scoring 50-69</span>
+  </div>
+  {worth_exploring_html}
 </div>
 
 <div class="divider"></div>
@@ -849,7 +920,10 @@ body { font-family: 'Sora', -apple-system, system-ui, sans-serif; background: #f
 
 .watch-list-section { margin-top: 8px; }
 .watch-list-table { opacity: 0.8; }
-.watch-list-section .section-header { border-left-color: var(--status-partial); }'''
+.watch-list-section .section-header { border-left-color: var(--status-partial); }
+
+.worth-exploring-table .we-rationale { max-width: 280px; font-size: 0.78rem; color: var(--card-text-secondary); }
+#worthExploringSection .section-header { border-left-color: var(--status-partial); }'''
 
 
 def _get_js() -> str:
@@ -993,7 +1067,21 @@ def _get_js() -> str:
   document.getElementById('pillExplore').addEventListener('click', function() {
     clearPillHighlight();
     this.classList.add('stat-active-pill');
+    // Expand all path groups so companies are visible immediately
+    var contents = document.querySelectorAll('#bestFitsSection .path-content');
+    var toggles = document.querySelectorAll('#bestFitsSection .path-toggle');
+    for (var i = 0; i < contents.length; i++) { contents[i].style.display = 'block'; }
+    for (var i = 0; i < toggles.length; i++) { toggles[i].classList.add('open'); }
+    var btn = document.getElementById('toggleAllBtn');
+    if (btn) btn.textContent = 'Collapse All';
     document.getElementById('bestFitsSection').scrollIntoView({behavior: 'smooth'});
+  });
+
+  document.getElementById('pillWorthExploring').addEventListener('click', function() {
+    clearPillHighlight();
+    this.classList.add('stat-active-pill');
+    document.getElementById('worthExploringSection').style.display = '';
+    document.getElementById('worthExploringSection').scrollIntoView({behavior: 'smooth'});
   });
 
   document.getElementById('pillPipeline').addEventListener('click', function() {
@@ -1051,10 +1139,12 @@ def build_html(merged: list[dict], full_mode: bool) -> str:
     views = {
         'follow_up': follow_up,
         'best_fits': bestfits,
+        'worth_exploring': [],
         'closed_out': closed_out,
         'stats': {
             'follow_up': len(follow_up),
             'best_fits': len(bestfits),
+            'worth_exploring': 0,
             'closed_out': len(closed_out),
             'total': len(follow_up) + len(bestfits) + len(closed_out),
         },
@@ -1076,7 +1166,7 @@ def main():
     views = build_active_views(target_csv, apps_csv)
     stats = views['stats']
 
-    print(f"  Follow-up: {stats['follow_up']} | Best Fits: {stats['best_fits']} | Closed: {stats['closed_out']}")
+    print(f"  Follow-up: {stats['follow_up']} | Best Fits: {stats['best_fits']} | Worth Exploring: {stats.get('worth_exploring', 0)} | Closed: {stats['closed_out']}")
 
     html_content = build_html_from_views(views, full_mode=args.full)
 

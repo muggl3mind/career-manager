@@ -126,9 +126,12 @@ def build_active_views(
                 'validation_status': 'pass',
             })
 
+    explore_min = cfg.get('explore_min_score', 50)
+
     # Partition
     follow_up: list[dict] = []
     best_fits: list[dict] = []
+    worth_exploring: list[dict] = []
     closed_out: list[dict] = []
 
     for row in enriched:
@@ -153,19 +156,24 @@ def build_active_views(
         # role_url is a display bonus (clickable link), not a gate
         if score >= apply_min:
             best_fits.append(row)
+        elif score >= explore_min:
+            worth_exploring.append(row)
 
     # Sort
     follow_up.sort(key=lambda r: r.get('date_applied') or r.get('date_added') or '', reverse=False)
     best_fits.sort(key=lambda r: _get_score(r), reverse=True)
+    worth_exploring.sort(key=lambda r: _get_score(r), reverse=True)
 
     return {
         'follow_up': follow_up,
         'best_fits': best_fits,
+        'worth_exploring': worth_exploring,
         'closed_out': closed_out,
         'stats': {
             'follow_up': len(follow_up),
             'best_fits': len(best_fits),
+            'worth_exploring': len(worth_exploring),
             'closed_out': len(closed_out),
-            'total': len(follow_up) + len(best_fits) + len(closed_out),
+            'total': len(follow_up) + len(best_fits) + len(worth_exploring) + len(closed_out),
         },
     }
