@@ -19,12 +19,38 @@ DATA_DIR = SCRIPT_DIR.parent / 'data'
 PENDING_PATH = DATA_DIR / 'pending-analysis.json'
 ANALYSIS_PATH = DATA_DIR / 'analysis.json'
 TERM_MAP_PATH = SCRIPT_DIR.parent / 'references' / 'terminology-map.md'
+PROFILE_PATH = SCRIPT_DIR.parent / 'config' / 'user-profile.yaml'
 
 CLAIMS_GUARDRAIL = [
     'Do not invent employers, titles, dates, or certifications.',
     'Do not remove company names/dates unless explicitly requested.',
     'Preserve factual claims and quantified results from base resume.',
 ]
+
+def _load_user_profile() -> dict:
+    """Load user-profile.yaml. Returns empty dict if missing or invalid.
+
+    Copy cv-tailor/config/user-profile.yaml.example to user-profile.yaml
+    and fill in your details to activate user-specific context.
+    """
+    if not PROFILE_PATH.exists():
+        print('[build_analysis] No user-profile.yaml found — running without user context.')
+        print('[build_analysis] Copy cv-tailor/config/user-profile.yaml.example to '
+              'cv-tailor/config/user-profile.yaml and fill in your details.')
+        return {}
+    try:
+        import yaml
+        with PROFILE_PATH.open(encoding='utf-8') as f:
+            profile = yaml.safe_load(f) or {}
+        if not isinstance(profile, dict):
+            print('[build_analysis] user-profile.yaml is not a mapping — running without user context.')
+            return {}
+        print(f'[build_analysis] Loaded user profile: {list(profile.keys())}')
+        return profile
+    except Exception as e:
+        print(f'[build_analysis] user-profile.yaml parse error: {e} — running without user context.')
+        return {}
+
 
 ANALYSIS_INSTRUCTIONS = """You are a CV tailoring specialist. Your task:
 
@@ -61,8 +87,11 @@ OUTPUT_SCHEMA = {
     "role": "string — copy from context unchanged",
     "base_resume_path": "string — copy from context unchanged",
     "summary_edits": [{"old": "exact string from base_cv_paragraphs", "new": "replacement text"}],
+    "tailored_edits": [{"old": "exact string from base_cv_paragraphs", "new": "replacement text — role-specific only"}],
+    "shared_edits": [{"old": "exact string from base_cv_paragraphs", "new": "replacement text — applies to Master CV too (e.g. fixing a missing URL in contact line)"}],
     "bullet_edits": [{"old": "exact string from base_cv_paragraphs", "new": "replacement text"}],
     "keyword_targets": ["list of 5–15 keywords from the JD to incorporate"],
+    "hyperlinks": [{"label": "display text", "url": "https://...", "style": "plain or styled"}],
     "cover_letter_paragraphs": ["paragraph 1", "paragraph 2", "paragraph 3"],
     "claims_guardrail": "KEEP AS-IS — copy from context unchanged",
 }
@@ -74,6 +103,7 @@ def build(company: str, role: str, base_resume_path: str, jd_text: str) -> Path:
     paragraphs = [p.text.strip() for p in d.paragraphs if p.text.strip()]
 
     term_map = TERM_MAP_PATH.read_text(encoding='utf-8') if TERM_MAP_PATH.exists() else ''
+    user_profile = _load_user_profile()
 
     payload = {
         'company': company,
@@ -83,6 +113,7 @@ def build(company: str, role: str, base_resume_path: str, jd_text: str) -> Path:
         'jd_text': jd_text[:5000],
         'instructions': ANALYSIS_INSTRUCTIONS,
         'terminology_map': term_map,
+        'user_profile': user_profile,
         'output_schema': OUTPUT_SCHEMA,
         'claims_guardrail': CLAIMS_GUARDRAIL,
         'output_path': str(ANALYSIS_PATH),

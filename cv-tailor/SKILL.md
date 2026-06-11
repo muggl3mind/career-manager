@@ -112,6 +112,33 @@ After producing artifacts:
 - **Resume must stay within 2 pages.** If edits push it to page 3, cut or condense. Check page count before finalizing.
 - **Cover letter must stay within 1 page.** 3-4 paragraphs max.
 
+## Core Strengths Validation
+
+Before writing `core_strengths` edits, apply these checks to each proposed strength:
+
+1. Is it a noun-phrase competency (e.g., "PE Fund Accounting"), not a verb-phrase task (e.g., "Managing PE funds")?
+2. Is it already obvious from the job titles in the experience section? If yes, drop it.
+3. Can the candidate point to a specific project or metric in the CV that proves it? If not, it is a buzzword.
+4. Is it specific enough that another applicant could not honestly claim the same thing? "Senior communication skills" does not differentiate.
+
+If 2 or more checks fail, regenerate the strength. Aim for 4-5 strengths. Fewer than 4 looks thin; more than 5 dilutes.
+
+## Summary Structure
+
+A professional summary must have exactly 3 sentences. Never present a partial summary:
+
+- **Sentence 1 (Identity):** Who the candidate is and the career through-line or pivot.
+- **Sentence 2 (Proof):** Concrete credentials with numbers and scope.
+- **Sentence 3 (Value):** What the candidate specifically brings to this role, using language from the JD.
+
+Word count: 75-100. Below 60 is bland; above 110 is bloated. Sentence 3 must contain at least one phrase that pattern-matches the JD responsibilities section.
+
+## Cover Letter Rules
+
+- Must include a wedge paragraph: name the gap between the candidate's background and the JD's stated ideal, then bridge it explicitly. The cover letter does the work the CV cannot.
+- Never frame the gap defensively ("the value I bring is not X but Y"). Lead with what the candidate brings.
+- If `user_profile.projects.poc_disclaimer` is true, frame AI projects as prototypes: "built to demonstrate" or "proof of concept showing" — never "runs autonomously" or implies production-grade deployment.
+
 ## Error Handling
 
 - If style/layout drifts, switch to micro-edit mode.

@@ -12,7 +12,17 @@ from pathlib import Path
 
 BASE = Path(__file__).resolve().parents[2]
 
+sys.path.insert(0, str(BASE / 'scripts' / 'core'))
 sys.path.insert(0, str(BASE.parent / 'scripts'))
+from opportunities import (
+    APPLIED_APP_STATUSES,
+    CLOSED_APP_STATUSES,
+    application_to_view_row,
+    matching_applications,
+    opportunity_to_view_row,
+    opportunities_from_targets,
+)
+
 try:
     from config_loader import get as _pipeline_cfg
 except Exception:
@@ -24,7 +34,7 @@ DEFAULT_CFG = {
     'watch_max_rows': _pipeline_cfg('pipeline.action_list.watch_max_rows', 20),
 }
 
-_CLOSED_STATUSES = {'rejected', 'closed', 'declined', 'no_fit_now'}
+_CLOSED_STATUSES = CLOSED_APP_STATUSES
 
 
 def _read_csv(path: Path) -> list[dict]:
@@ -47,6 +57,82 @@ def _is_active_lifecycle(row: dict) -> bool:
     if state:
         return state == 'active'
     return row.get('validation_status') == 'pass'
+
+
+def _split_roles(value: str) -> list[str]:
+    roles = []
+    for part in (value or '').split(';'):
+        role = ' '.join(part.split())
+        if role and role not in roles:
+            roles.append(role)
+    return roles
+
+
+def _merge_role_list(left: str, right: str) -> str:
+    roles = _split_roles(left)
+    for role in _split_roles(right):
+        if role not in roles:
+            roles.append(role)
+    return '; '.join(sorted(roles))
+
+
+def _aggregate_by_company(rows: list[dict]) -> list[dict]:
+    """Collapse display rows to one row per company while preserving role coverage."""
+    by_company: dict[str, dict] = {}
+    for row in rows:
+        key = (row.get('company') or '').strip().lower()
+        if not key:
+            continue
+        row = dict(row)
+        if not (row.get('apply_url') or '').strip():
+            row['apply_url'] = (
+                (row.get('role_url') or '').strip()
+                or (row.get('careers_url') or '').strip()
+                or (row.get('source_key') or '').strip()
+            )
+        if key not in by_company:
+            by_company[key] = row
+            continue
+
+        existing = by_company[key]
+        existing['open_positions'] = _merge_role_list(
+            existing.get('open_positions', ''),
+            row.get('open_positions', ''),
+        )
+        existing['role_title'] = existing['open_positions']
+        existing['opportunity_key'] = _merge_role_list(
+            existing.get('opportunity_key', ''),
+            row.get('opportunity_key', ''),
+        )
+        for field in ('role_url', 'apply_url', 'careers_url', 'source_key'):
+            if not (existing.get(field) or '').strip() and (row.get(field) or '').strip():
+                existing[field] = row[field]
+        if not (existing.get('apply_url') or '').strip():
+            existing['apply_url'] = (
+                (existing.get('role_url') or '').strip()
+                or (existing.get('careers_url') or '').strip()
+                or (existing.get('source_key') or '').strip()
+            )
+
+        if _get_score(row) > _get_score(existing):
+            keep = {
+                'open_positions': existing['open_positions'],
+                'role_title': existing['role_title'],
+                'opportunity_key': existing['opportunity_key'],
+                'role_url': existing.get('role_url', ''),
+                'apply_url': existing.get('apply_url', ''),
+                'careers_url': existing.get('careers_url', ''),
+                'source_key': existing.get('source_key', ''),
+            }
+            existing.update(row)
+            existing.update(keep)
+
+    return list(by_company.values())
+
+
+def aggregate_display_rows(rows: list[dict]) -> list[dict]:
+    """Public wrapper for company-level dashboard/table display rows."""
+    return _aggregate_by_company(rows)
 
 
 def build_active_views(
@@ -77,54 +163,11 @@ def build_active_views(
     watch_min = cfg.get('watch_min_score', 85)
     watch_max = cfg.get('watch_max_rows', 20)
 
-    targets = _read_csv(target_csv)
+    opportunities_csv = target_csv.parent / 'opportunities.csv'
+    opportunities = _read_csv(opportunities_csv)
+    if not opportunities:
+        opportunities = opportunities_from_targets(_read_csv(target_csv))
     apps = _read_csv(apps_csv)
-
-    # Build app lookup
-    app_map: dict[str, dict] = {}
-    for a in apps:
-        key = a.get('company', '').strip().lower()
-        if key:
-            app_map[key] = a
-
-    # Enrich targets with app data, track which app keys matched
-    matched_app_keys: set[str] = set()
-    enriched: list[dict] = []
-    for t in targets:
-        row = dict(t)
-        key = t.get('company', '').strip().lower()
-        app = app_map.get(key, {})
-        if app:
-            matched_app_keys.add(key)
-        row['app_status'] = app.get('status', '')
-        row['date_added'] = app.get('date_added', '')
-        row['date_applied'] = app.get('date_applied', '')
-        row['last_contact'] = app.get('last_contact', '')
-        row['contact_name'] = app.get('contact_name', '')
-        row['contact_email'] = app.get('contact_email', '')
-        row['app_notes'] = app.get('notes', '')
-        enriched.append(row)
-
-    # Add application-only entries (not in target-companies.csv)
-    for key, app in app_map.items():
-        if key not in matched_app_keys:
-            enriched.append({
-                'company': app.get('company', ''),
-                'llm_score': '',
-                'role_family': '',
-                'open_positions': app.get('role', ''),
-                'careers_url': app.get('job_url', ''),
-                'role_url': app.get('job_url', ''),
-                'app_status': app.get('status', ''),
-                'date_added': app.get('date_added', ''),
-                'date_applied': app.get('date_applied', ''),
-                'last_contact': app.get('last_contact', ''),
-                'contact_name': app.get('contact_name', ''),
-                'contact_email': app.get('contact_email', ''),
-                'app_notes': app.get('notes', ''),
-                'lifecycle_state': 'active',
-                'validation_status': 'pass',
-            })
 
     explore_min = cfg.get('explore_min_score', 50)
 
@@ -133,20 +176,24 @@ def build_active_views(
     best_fits: list[dict] = []
     worth_exploring: list[dict] = []
     closed_out: list[dict] = []
+    matched_app_ids: set[int] = set()
 
-    for row in enriched:
-        status = row.get('app_status', '').strip()
+    for opportunity in opportunities:
+        matches = matching_applications(opportunity, apps)
+        for app in matches:
+            matched_app_ids.add(id(app))
+        active_matches = [a for a in matches if (a.get('status') or '').strip() in APPLIED_APP_STATUSES]
+        closed_matches = [a for a in matches if (a.get('status') or '').strip() in _CLOSED_STATUSES]
+
+        if active_matches:
+            follow_up.append(opportunity_to_view_row(opportunity, active_matches[-1]))
+            continue
+        if closed_matches:
+            closed_out.append(opportunity_to_view_row(opportunity, closed_matches[-1]))
+            continue
+
+        row = opportunity_to_view_row(opportunity, matches[-1] if matches else None)
         score = _get_score(row)
-
-        # Applied → follow_up
-        if status == 'applied':
-            follow_up.append(row)
-            continue
-
-        # Rejected/closed → closed_out
-        if status in _CLOSED_STATUSES:
-            closed_out.append(row)
-            continue
 
         # Must be lifecycle active
         if not _is_active_lifecycle(row):
@@ -158,6 +205,22 @@ def build_active_views(
             best_fits.append(row)
         elif score >= explore_min:
             worth_exploring.append(row)
+
+    # Add application-only entries that did not match a current opportunity.
+    for app in apps:
+        if id(app) in matched_app_ids:
+            continue
+        status = (app.get('status') or '').strip()
+        row = application_to_view_row(app)
+        if status in APPLIED_APP_STATUSES:
+            follow_up.append(row)
+        elif status in _CLOSED_STATUSES:
+            closed_out.append(row)
+
+    follow_up = _aggregate_by_company(follow_up)
+    best_fits = _aggregate_by_company(best_fits)
+    worth_exploring = _aggregate_by_company(worth_exploring)
+    closed_out = _aggregate_by_company(closed_out)
 
     # Sort
     follow_up.sort(key=lambda r: r.get('date_applied') or r.get('date_added') or '', reverse=False)

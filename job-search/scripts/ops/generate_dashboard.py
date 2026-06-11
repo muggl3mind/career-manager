@@ -469,7 +469,7 @@ def build_bestfits_section(rows: list[dict], limit_per_path: int = 3, display_gr
             if role_count > 2:
                 role_text += f' <span class="cr-role-count">(+{role_count - 2} more)</span>'
 
-            url = (r.get('role_url', '') or r.get('careers_url', '')).strip()
+            url = (r.get('apply_url', '') or r.get('role_url', '') or r.get('careers_url', '') or r.get('source_key', '')).strip()
             company_el = f'<a href="{escape(url)}" target="_blank">{company}</a>' if url else company
 
             return f'''<div class="company-row">
@@ -523,7 +523,7 @@ def build_worth_exploring_section(rows: list[dict]) -> str:
         if role_count > 2:
             role_text += f' <span class="role-extra">(+{role_count - 2})</span>'
 
-        url = (r.get('role_url', '') or r.get('careers_url', '')).strip()
+        url = (r.get('apply_url', '') or r.get('role_url', '') or r.get('careers_url', '') or r.get('source_key', '')).strip()
         company_el = f'<a href="{escape(url)}" target="_blank">{company}</a>' if url else company
 
         table_rows.append(f'''<tr>
@@ -570,7 +570,7 @@ def build_watch_list_section(rows: list[dict]) -> str:
         status = r.get('app_status', '').strip()
         label, css_class = STATUS_LABELS.get(status, ('Not Applied', 'status-not'))
 
-        url = (r.get('role_url', '') or r.get('careers_url', '')).strip()
+        url = (r.get('apply_url', '') or r.get('role_url', '') or r.get('careers_url', '') or r.get('source_key', '')).strip()
         company_el = f'<a href="{escape(url)}" target="_blank">{company}</a>' if url else company
 
         table_rows.append(f'''<tr>
@@ -638,7 +638,7 @@ def build_pipeline_table(rows: list[dict]) -> str:
         except (ValueError, TypeError):
             last_action = '\u2014'
 
-        url = (r.get('role_url', '') or r.get('careers_url', '')).strip()
+        url = (r.get('apply_url', '') or r.get('role_url', '') or r.get('careers_url', '') or r.get('source_key', '')).strip()
         company_el = f'<a href="{escape(url)}" target="_blank">{company}</a>' if url else company
 
         table_rows.append(f'''<tr data-path="{escape(r.get('role_family', ''))}" data-score="{format_score(score)}" data-status="{escape(status)}">
@@ -689,6 +689,8 @@ def build_pipeline_table(rows: list[dict]) -> str:
 
 def build_html_from_views(views: dict, full_mode: bool) -> str:
     """Build the complete HTML dashboard string from pre-filtered views."""
+    from dashboard_views import aggregate_display_rows
+
     stats = views['stats']
     run_date = datetime.now().strftime('%Y-%m-%d %H:%M')
     title = 'Career Dashboard (Full)' if full_mode else 'Career Dashboard'
@@ -718,7 +720,7 @@ def build_html_from_views(views: dict, full_mode: bool) -> str:
     worth_exploring_html = build_worth_exploring_section(worth_exploring_rows)
 
     # Full pipeline table: all visible rows combined
-    all_visible = followup_rows + bestfit_rows + worth_exploring_rows
+    all_visible = aggregate_display_rows(followup_rows + bestfit_rows + worth_exploring_rows)
     pipeline_html = build_pipeline_table(all_visible)
 
     brand_css = read_brand_css()
@@ -1157,12 +1159,16 @@ def main():
     parser.add_argument('--full', action='store_true', help='Show all companies per path')
     args = parser.parse_args()
 
-    print("\n[Dashboard] Building views from target-companies.csv + applications.csv...")
+    print("\n[Dashboard] Building views from opportunities.csv + applications.csv...")
 
     from dashboard_views import build_active_views
+    sys.path.insert(0, str(BASE / 'scripts' / 'core'))
+    from opportunities import sync_opportunities_from_targets
 
     target_csv = DATA / 'target-companies.csv'
+    opportunities_csv = DATA / 'opportunities.csv'
     apps_csv = TRACKER_DATA / 'applications.csv'
+    sync_opportunities_from_targets(target_csv, opportunities_csv)
     views = build_active_views(target_csv, apps_csv)
     stats = views['stats']
 

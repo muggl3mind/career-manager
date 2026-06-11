@@ -8,7 +8,8 @@ description: "Run job discovery and target-list maintenance workflows for career
 Data hub and scripts for the job search pipeline. Three-phase workflow: Python exports, Claude agent research, Python merges.
 
 ## Data Files (source of truth)
-- `{baseDir}/data/target-companies.csv` — Researched companies with scores (0-100)
+- `{baseDir}/data/target-companies.csv` — Researched companies with scores (0-100) and company lifecycle
+- `{baseDir}/data/opportunities.csv` — Actionable role-level opportunities generated from target companies
 - `{baseDir}/data/cv-index.json` — Maps role types to resume versions
 - Note: `applications.csv` is owned by sibling `job-tracker` skill
 
@@ -96,12 +97,11 @@ For each path context file:
 
 1. Read the context file to get `path_label`, `path_description`, `known_companies_skip`, `known_companies`, and `instructions`
 2. Read `references/criteria.md` for scoring rubric
-3. Follow the 4-step research protocol in the context file's `instructions`:
-   a. **Market mapping** — find prominent companies in this category via broad industry searches
-   b. **Competitor expansion** — for the most promising ones, search for competitors and alternatives
-   c. **Funding sweep** — search for recently funded companies in the space
-   d. **Careers check** — check each company's careers page, classify as `active_role` or `watch_list`. If `watch_list`, you MUST provide `watch_reason` (one of: no_careers_page, no_matching_roles, roles_wrong_location, company_too_early, domain_mismatch, unable_to_verify) and `watch_evidence` (specific evidence supporting the reason). Vague reasons like "ambiguous" are not accepted.
-4. Budget: up to the query cap specified in the context file. NO minimum-companies requirement — return ONLY companies that score at or above the `discover_min_score` threshold in the context file. If nothing meets the threshold, return an empty results array. Do not stretch to hit a count.
+3. **MANDATORY:** Execute EVERY query in the context file's `suggested_queries` list before concluding. For each query, run the search, review results, evaluate candidates. Then use remaining budget for follow-ups:
+   a. **Competitor expansion** — for the most promising finds, search for competitors and alternatives
+   b. **Funding sweep** — search for recently funded companies in the space
+   c. **Careers check** — check each company's careers page, classify as `active_role` or `watch_list`. If `watch_list`, you MUST provide `watch_reason` (one of: no_careers_page, no_matching_roles, roles_wrong_location, company_too_early, domain_mismatch, unable_to_verify) and `watch_evidence` (specific evidence supporting the reason). Vague reasons like "ambiguous" are not accepted.
+4. Budget: up to the query cap in the context file. You MUST use at least the number of suggested queries from your budget. NO minimum-companies requirement — return ONLY companies scoring at or above `discover_min_score`. If nothing meets threshold after all queries, return an empty results array.
 5. Score using the 10-dimension rubric from criteria.md
 6. Write results to `data/prospecting-results-{path_key}.json` using the wrapper format:
 

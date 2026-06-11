@@ -145,7 +145,9 @@ def cmd_apply(company: str, role: str) -> dict:
 
     analysis = json.loads(ANALYSIS_PATH.read_text(encoding='utf-8'))
 
-    errs = validate_analysis(analysis)
+    errs, warns = validate_analysis(analysis)
+    for w in warns:
+        print(f'[validate] WARNING: {w}')
     if errs:
         print('ERROR: analysis.json failed validation:')
         for e in errs:
@@ -171,7 +173,12 @@ def cmd_apply(company: str, role: str) -> dict:
     manifest_path = company_dir / f'Manifest_{rc}_{date_str}_{vs}.json'
     receipt_path = company_dir / f'Changes_Applied_{rc}_{date_str}_{vs}.txt'
 
-    edits = analysis.get('summary_edits', []) + analysis.get('bullet_edits', [])
+    edits = (
+        analysis.get('summary_edits', []) +
+        analysis.get('bullet_edits', []) +
+        analysis.get('tailored_edits', []) +
+        analysis.get('shared_edits', [])
+    )
 
     patch_result = apply_safe_patch(base, resume_path, edits)
     _write_change_receipt(receipt_path, edits, patch_result)

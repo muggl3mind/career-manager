@@ -15,3 +15,25 @@ HEADER = [
     'llm_hard_pass', 'llm_hard_pass_reason', 'llm_evaluated_at',
     'lifecycle_state', 'last_verified_at', 'watching_run_count',
 ]
+
+
+OPPORTUNITY_HEADER = [
+    'opportunity_key',
+    'company',
+    'role_title',
+    'role_url',
+    'apply_url',
+    'careers_url',
+    'opportunity_status',
+    'company_lifecycle_state',
+    'validation_status',
+    'llm_score',
+    'role_family',
+    'source',
+    'source_key',
+    'last_checked',
+    'last_verified_at',
+    'fit_summary',
+    'llm_flags',
+    'notes',
+]
