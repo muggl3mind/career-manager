@@ -11,19 +11,19 @@ Modes:
   phase3   — Action list generation
 
 Usage:
-  uv run scripts/ops/run_pipeline.py phase1                # exports + discovery
-  uv run scripts/ops/run_pipeline.py phase1 --skip-jobspy  # exports only (faster)
-  uv run scripts/ops/run_pipeline.py phase2                # all merges
-  uv run scripts/ops/run_pipeline.py phase2 --dry-run      # preview merges
-  uv run scripts/ops/run_pipeline.py phase3                # health check + action list
+  uv run job-search/scripts/ops/run_pipeline.py phase1                # exports + discovery
+  uv run job-search/scripts/ops/run_pipeline.py phase1 --skip-jobspy  # exports only (faster)
+  uv run job-search/scripts/ops/run_pipeline.py phase2                # all merges
+  uv run job-search/scripts/ops/run_pipeline.py phase2 --dry-run      # preview merges
+  uv run job-search/scripts/ops/run_pipeline.py phase3                # health check + action list
 
 Full pipeline flow:
   1. User says "run job search"
-  2. Claude runs: uv run scripts/ops/run_pipeline.py phase1
+  2. Claude runs: uv run job-search/scripts/ops/run_pipeline.py phase1
   3. Claude does agent work: read context files, check careers pages,
      evaluate jobs, write result files
-  4. Claude runs: uv run scripts/ops/run_pipeline.py phase2
-  5. Claude runs: uv run scripts/ops/run_pipeline.py phase3
+  4. Claude runs: uv run job-search/scripts/ops/run_pipeline.py phase2
+  5. Claude runs: uv run job-search/scripts/ops/run_pipeline.py phase3
 """
 
 from __future__ import annotations
@@ -223,7 +223,7 @@ def phase1(skip_jobspy: bool = False, limit: int = 35) -> dict:
         print(f"\n  Claude: read the files above, do research + evaluation,")
         print(f"  then write result files (monitor-results.json, eval-results.json,")
         print(f"  prospecting-results.json) as needed.")
-        print(f"\n  When done: uv run scripts/ops/run_pipeline.py phase2")
+        print(f"\n  When done: uv run job-search/scripts/ops/run_pipeline.py phase2")
 
     # Write summary for Claude to read
     results['timestamp'] = datetime.now().isoformat()
@@ -404,10 +404,14 @@ def _generate_action_list(output_path: Path) -> None:
     """Generate ranked action list CSV from the shared dashboard_views helper."""
     import csv as _csv
     sys.path.insert(0, str(SCRIPTS))
+    sys.path.insert(0, str(BASE / 'scripts' / 'core'))
     from dashboard_views import build_active_views
+    from opportunities import sync_opportunities_from_targets
 
     target_csv = DATA / 'target-companies.csv'
+    opportunities_csv = DATA / 'opportunities.csv'
     apps_csv = BASE.parent / 'job-tracker' / 'data' / 'applications.csv'
+    opportunities = sync_opportunities_from_targets(target_csv, opportunities_csv)
     views = build_active_views(target_csv, apps_csv)
 
     best_fits = views['best_fits']
@@ -427,7 +431,12 @@ def _generate_action_list(output_path: Path) -> None:
             'llm_score': score_raw,
             'path': r.get('role_family', ''),
             'role': r.get('open_positions', ''),
-            'apply_url': (r.get('role_url') or '').strip() or (r.get('careers_url') or '').strip(),
+            'apply_url': (
+                (r.get('apply_url') or '').strip()
+                or (r.get('role_url') or '').strip()
+                or (r.get('careers_url') or '').strip()
+                or (r.get('source_key') or '').strip()
+            ),
             'has_role_url': 'yes' if (r.get('role_url') or '').strip() else '',
             'applied_status': r.get('app_status', '') or 'not_applied',
             'applied_date': r.get('date_added', ''),
@@ -449,6 +458,7 @@ def _generate_action_list(output_path: Path) -> None:
         w.writerows(csv_rows)
 
     print(f"\n  Action list: {output_path.name}")
+    print(f"  Opportunities: {len(opportunities)} rows in opportunities.csv")
     print(f"  Best Fits (score >= 70): {stats['best_fits']}")
     print(f"  Total rows: {len(csv_rows)}")
 

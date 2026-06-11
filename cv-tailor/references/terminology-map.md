@@ -1,14 +1,50 @@
 > **Example:** This terminology map is for the accounting/finance domain. Replace with your industry's terms when you run onboarding.
 
-# JD-to-Practitioner Terminology Map
+# Terminology Rules
+
+Two sections: (1) words and phrases that must never appear in tailored output, (2) preferred practitioner equivalents for JD marketing language.
+
+---
+
+## Section 1: Buzzword Blocklist
+
+These words and phrases are hard-blocked in tailored resume and cover letter output. `quality_gate.py` scans for them and fails the run if any are present.
+
+| Blocked phrase | Why |
+|---|---|
+| leveraging / leveraged | AI-sounding generic verb |
+| spearheading | AI-sounding, overused |
+| seamlessly / seamless | AI-sounding filler |
+| bespoke | reads as buzzword |
+| trusted advisor | generic, overused |
+| single point of contact | overstates ownership |
+| audit-grade (anything) | Claude-invented buzzword |
+| passionate about | AI-sounding |
+| thrilled to | AI-sounding |
+| operating against | meaningless filler |
+| executing against | meaningless filler |
+| held up under (any) scrutiny | filler |
+
+### Role Verb Accuracy
+
+Verbs describing candidate work must match the actual function of the role.
+
+- Auditors **audit**, **review**, **test**, **evaluate** — they do not manage clients, advise clients, or challenge clients
+- domain operators **manage fund accounting for**, **run the books for**, **support** — they do not advise
+- If the candidate's `role_verb_map` in user-profile.yaml has an entry for an employer, use that verb exactly
+- If no entry exists, default to the most conservative accurate verb for the role type
+
+---
+
+## Section 2: JD-to-Practitioner Terminology Map
 
 JD postings use marketing language. Resumes should use the terms practitioners actually use. When tailoring, always prefer the practitioner equivalent that matches the candidate's real experience.
 
-## Core Rule
+### Core Rule
 
 If the JD describes a function the candidate performed under a different name, use the candidate's actual role language. Example: JD says "onboarding" but candidate did "post-deployment support" → use "post-deployment support."
 
-## Mapping Table
+### Mapping Table
 
 | Domain | JD Term | Practitioner Equivalents |
 |--------|---------|------------------------|
@@ -29,7 +65,7 @@ If the JD describes a function the candidate performed under a different name, u
 | Close | month-end close | close cycle, period-end close, GL reconciliation, trial balance review |
 | Valuation | fair value measurement | ASC 820, mark-to-market, Level 1/2/3 inputs, independent price verification |
 
-## Usage Notes
+### Usage Notes
 
 - If multiple practitioner terms exist, pick the one closest to the candidate's actual experience and seniority level.
 - When the JD term has no practitioner equivalent (e.g., it's already precise), use it as-is.

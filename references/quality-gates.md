@@ -1,6 +1,6 @@
 # Target Company Quality Gates
 
-Run before digests or major prioritization:
+Run before major prioritization or sharing target-list output:
 
 1. **Required fields present**: company, careers_url or website, fit_rationale
 2. **No duplicates**: normalized company name dedupe

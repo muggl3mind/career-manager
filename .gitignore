@@ -30,7 +30,7 @@ job-search/data/search-config.json
 job-search/data/dashboard.html
 job-search/data/dashboard-full.html
 job-tracker/data/applications.csv
-company-research/dossiers/
+company-research/dossiers/*
 !company-research/dossiers/.gitkeep
 cv-tailor/data/CV/*
 !cv-tailor/data/CV/Master CV/

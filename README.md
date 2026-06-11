@@ -22,7 +22,9 @@ An AI-assisted career management system built as a set of Claude Code skills. Or
 
 ## Getting Started
 
-1. Install [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview)
+**Prerequisites:** [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview), [uv](https://docs.astral.sh/uv/getting-started/installation/), and Python 3.10+.
+
+1. Install the prerequisites above
 2. Open Claude Code and paste this prompt:
 
    > Clone https://github.com/muggl3mind/career-manager.git and start onboarding.
@@ -46,7 +48,7 @@ Onboarding is a guided interview. Here's what you do vs. what Claude does:
 
 **Claude:**
 - Reads your resume and extracts your background
-- Derives 3-8 career paths from your experience and targets
+- Derives 5-8 career paths from your experience and targets
 - Generates all config files automatically:
   - `config.yaml` -- pipeline settings
   - `job-search/references/criteria.md` -- scoring rubric
@@ -55,7 +57,7 @@ Onboarding is a guided interview. Here's what you do vs. what Claude does:
 - Runs a smoke test to verify everything works
 - Hands off to the job search pipeline when ready
 
-> **Manual setup:** If you prefer to skip onboarding, copy `config.yaml.example` to `config.yaml` and edit the reference files manually.
+> **Manual setup:** Onboarding is the only supported way to generate the reference files (`criteria.md`, `background-context.md`, `search-config.json`) — they are not shipped in the repo. Manual editing is for customizing them *after* onboarding has created them.
 
 ## How to Use
 
@@ -111,7 +113,7 @@ Wave 2 -- Parallel expansion agents (paths with 3+ Wave 1 results)
   +-- Competitor mining: alternatives to seed companies
   +-- Investor portfolio mining: portfolio companies of seed investors
   +-- Community/list mining: curated lists, YC batches, awesome-lists
-  +-- Min 5 new companies per path
+  +-- Returns only new companies scoring above the discovery threshold (no minimum quota)
 
 Phase 2 -- Python merges all results into target-companies.csv
 
@@ -144,15 +146,16 @@ Each skill has its own `SKILL.md` with detailed usage instructions.
 Get direct links to specific job postings instead of generic careers pages. Free tier: 1,000 credits/month.
 
 1. Sign up at [tavily.com](https://tavily.com) and get an API key
-2. Save as `.credentials/tavily-token.json`: `{"api_key": "tvly-your-key"}`
+2. Create the directory if needed (`mkdir -p .credentials`), then save the key as `.credentials/tavily-token.json`: `{"api_key": "tvly-your-key"}`
 3. Set `tavily_enabled: true` in `config.yaml`
 
 ## Architecture
 
 Each skill owns its data and exposes clear interfaces:
 
-- `job-search/data/target-companies.csv` -- Source of truth for all discovered companies
-- `job-tracker/data/applications.csv` -- Source of truth for application pipeline
+- `job-search/data/target-companies.csv` -- Source of truth for discovered companies and company lifecycle
+- `job-search/data/opportunities.csv` -- Source of truth for actionable roles generated from the pipeline
+- `job-tracker/data/applications.csv` -- Source of truth for submitted/researched applications
 - `company-research/dossiers/*.md` -- Deep research output
 - `cv-tailor/data/CV/[company]/` -- Per-company tailored materials
 

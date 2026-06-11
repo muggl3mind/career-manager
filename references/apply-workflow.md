@@ -6,7 +6,7 @@ Use this sequence for a full job-search cycle:
    - Build dossier with Overview, Signals, Fit, Risks.
    - Decide PURSUE / RESEARCH MORE / PASS.
 
-2. **Target List Update** (`career-manager`)
+2. **Target List Update** (`job-search`)
    - Add or refresh company in `target-companies.csv`.
    - Re-score and rank target list.
 
@@ -19,12 +19,8 @@ Use this sequence for a full job-search cycle:
    - Update status transitions (researching -> applied -> interviewing -> offer/rejected/declined).
 
 5. **Follow-Up Management** (`job-tracker` + templates)
-   - Run stale follow-up scan (7+ days).
+   - Run the tracker `followup` command for the stale-application scan.
    - Draft recruiter/hiring manager follow-ups.
-
-6. **Digest Integration** (`career-manager`)
-   - Include updates in digest sections.
-   - Ensure validation gate passes before send.
 
 ## Common Compound Intents
 - "Research X and prep my CV" -> steps 1 + 3

@@ -11,9 +11,10 @@ Independent evaluation suite for the job-search pipeline. Lives outside the pipe
 
 | Level | Script | When to Run |
 |-------|--------|-------------|
-| 1. Code Review | `scripts/code_review.py` | After building or changing pipeline code |
-| 2. Runtime Verify | `scripts/runtime_verify.py` | After a pipeline run completes |
-| 3. Health Monitor | `scripts/health_monitor.py` | Recurring — every pipeline run or 2-3x/week |
+| 0. Test Suite | `evals/tests/` (pytest) | After any code change |
+| 1. Code Review | `evals/scripts/code_review.py` | After building or changing pipeline code |
+| 2. Runtime Verify | `evals/scripts/runtime_verify.py` | After a pipeline run completes |
+| 3. Health Monitor | `evals/scripts/health_monitor.py` | Recurring — every pipeline run or 2-3x/week |
 
 ## Process
 
@@ -25,22 +26,25 @@ Independent evaluation suite for the job-search pipeline. Lives outside the pipe
 ## Usage
 
 ```bash
+# Level 0: Full test suite
+uv run python3 -m pytest evals/tests/ -v
+
 # Level 1: Static code review of job-search pipeline
-python3 scripts/code_review.py
+uv run evals/scripts/code_review.py
 
 # Level 2: Validate outputs after a pipeline run
-python3 scripts/runtime_verify.py
+uv run evals/scripts/runtime_verify.py
 
 # Level 3: Ongoing health monitoring
-python3 scripts/health_monitor.py
-python3 scripts/health_monitor.py --json
+uv run evals/scripts/health_monitor.py
+uv run evals/scripts/health_monitor.py --json
 ```
 
 ## Scope
 
-- Evaluates: `career-manager/job-search/` (scripts, data, caches)
+- Evaluates: `job-search/` (scripts, data, caches)
 - Does NOT evaluate: itself, other career-manager skills, or non-pipeline code
-- References: `workflow-standards/references/evaluation.md` for methodology
+- Also owns: the pytest suite in `evals/tests/` and `evals/schemas/eval-results.schema.json`
 
 ## Output Format
 

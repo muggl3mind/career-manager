@@ -70,9 +70,8 @@ Use `scripts/tracker_commands.py` for all CSV operations. Import and call functi
 
 ## Integration
 
-- **company-research** → researches target companies and can feed tracking decisions
+- **company-research** → company dossier (culture, signals, fit) that feeds tracking decisions before applying
 - **cv-tailor** → prepares materials before applying
-- **company-research** → culture + company dossier before applying
 
 ## Reference Files
 

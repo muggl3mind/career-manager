@@ -7,9 +7,10 @@
 3. Save JD to a temp file (e.g., `/tmp/jd_{company}.txt`).
 4. Run Phase 1 — Prep:
    ```
-   python3 scripts/run_pipeline.py --phase prep --company "..." --role "..." --jd-path /tmp/jd.txt
+   uv run cv-tailor/scripts/run_pipeline.py --phase prep --company "..." --role "..." --jd-path /tmp/jd.txt
    ```
    This selects the base CV deterministically and writes `data/pending-analysis.json`.
+4b. **Holistic pass (before any editing):** Read the full base CV and the full JD together before producing any edit. Write one sentence describing the unified narrative the CV should tell for this specific role (the "wedge"). Do not proceed to bullet-level analysis until the wedge is clear. This prevents keyword-swap edits that produce a disjointed resume.
 5. Read `data/pending-analysis.json`. Analyze the role against the base CV and produce:
    - Summary edit (professional positioning)
    - Core strengths line
@@ -19,13 +20,18 @@
    **`old` values must be exact matches from `base_cv_paragraphs` — copy-paste, no paraphrasing.**
 6. Run Phase 2 — Apply:
    ```
-   python3 scripts/run_pipeline.py --phase apply --company "..." --role "..."
+   uv run cv-tailor/scripts/run_pipeline.py --phase apply --company "..." --role "..."
    ```
    Validates schema, patches resume, generates cover letter + redline + QC report + manifest.
 7. Show user:
    - Manifest status (pass/fail)
    - File paths for all artifacts
    - Concise change summary (what changed and why)
+7b. **Post-apply preview:** After producing artifacts, spot-check the output docx:
+   - Scan for bold bleed into continuation text (bold should not extend past ": " in "Header: continuation" bullets).
+   - Verify all hyperlinks render correctly (contact line links appear as plain text, body citations as styled).
+   - Confirm the resume stays within 2 pages.
+   If any check fails, surface the issue before claiming the run is complete.
 8. Wait for explicit user approval before any finalization/sending.
 
 ## Quality Gates (must pass)
