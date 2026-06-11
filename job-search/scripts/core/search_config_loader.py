@@ -30,7 +30,8 @@ def load_search_config(config_path: Path) -> Optional[dict]:
     """
     if not config_path.exists():
         print(f"[search] No search-config.json found at {config_path}")
-        print("[search] Run the onboarding skill to generate your search configuration.")
+        print("[search] Run the onboarding skill to generate your search configuration,")
+        print("[search] or copy search-config.json.example (same directory) and personalize it.")
         return None
 
     try:
@@ -38,6 +39,14 @@ def load_search_config(config_path: Path) -> Optional[dict]:
             config = json.load(f)
     except (json.JSONDecodeError, OSError) as e:
         print(f"[search] Error reading {config_path}: {e}")
+        return None
+
+    # Guard: the repo ships search-config.json as an unconfigured stub
+    if config.get("setup_required"):
+        print(f"[search] {config_path} is the shipped stub (setup_required is true).")
+        print("[search] Run the onboarding skill to generate your search configuration,")
+        print("[search] or copy search-config.json.example (same directory) over it,")
+        print("[search] fill in your details, and set setup_required to false.")
         return None
 
     # Validate required keys

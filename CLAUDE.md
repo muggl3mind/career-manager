@@ -27,7 +27,7 @@ SKILL.md files use paths relative to their skill directory. Always prefix with t
 
 ## First-Time Setup
 
-If `config.yaml` or `search-config.json` don't exist, run the onboarding skill first. See README for full setup steps.
+If `config.yaml` doesn't exist, or `search-config.json` is still the shipped stub (`setup_required: true`), run the onboarding skill first. See README for full setup steps.
 
 ## Status Briefing
 

@@ -159,6 +159,8 @@ Generate with this structure:
 
 #### File 4: `job-search/data/search-config.json`
 
+The repo ships this file as a placeholder stub with `"setup_required": true` (a full neutral template lives at `job-search/data/search-config.json.example`). Overwrite the entire stub with the generated config and do not carry over the `setup_required` flag (or set it to `false`); the pipeline refuses to run while it is `true`.
+
 Generate valid JSON matching this exact structure. **Pay close attention to types. `query_packs` and `path_check_instructions` are dicts, not lists.**
 
 ```json

@@ -57,7 +57,7 @@ Onboarding is a guided interview. Here's what you do vs. what Claude does:
 - Runs a smoke test to verify everything works
 - Hands off to the job search pipeline when ready
 
-> **Manual setup:** Onboarding is the only supported way to generate the reference files (`criteria.md`, `background-context.md`, `search-config.json`) — they are not shipped in the repo. Manual editing is for customizing them *after* onboarding has created them.
+> **Manual setup:** Onboarding is the recommended way to generate the personalized files. `criteria.md` and `background-context.md` are not shipped in the repo and are only created by onboarding. `search-config.json` ships as a neutral stub with `setup_required: true`; the pipeline will not run until it is personalized. To configure it by hand, copy `job-search/data/search-config.json.example` over `job-search/data/search-config.json`, replace the placeholder values, and set `setup_required` to `false`. Manual editing of the other files is for customizing them *after* onboarding has created them.
 
 ## How to Use
 

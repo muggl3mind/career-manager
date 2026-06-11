@@ -1,0 +1,277 @@
+{
+  "_instructions": {
+    "about": "Template for job-search/data/search-config.json. Every key the pipeline reads is documented here with neutral placeholder values (healthcare domain, Acme/Beta/DataCo companies). Replace the placeholders with your own career paths, queries, and weights.",
+    "how_to_use": "Recommended: run the onboarding skill, which generates a personalized search-config.json from your resume and goals. Manual: copy this file to search-config.json, replace every placeholder value, and set setup_required to false.",
+    "setup_required": "Boolean. The shipped search-config.json stub sets this to true and the pipeline refuses to run until it is false (or removed). Set to false once you have personalized the file.",
+    "search_locations": "Countries to search. Each query pack's locations field should contain these plus Remote.",
+    "query_packs": "Dict keyed by snake_case path key, one pack per career path. Each value needs label (human-readable path name), queries (3+ search strings), locations, and job_type. Onboarding generates 5 to 8 packs; this template shows 3.",
+    "role_include_patterns": "Python regexes. A job title must match at least one to pass the title gate. No inline flags like (?i); matching is case-insensitive already.",
+    "role_exclude_patterns": "Python regexes. Titles matching any of these are rejected even if an include pattern matched.",
+    "employer_exclude_patterns": "Python regexes matched against employer names. Use for industries or org types you never want.",
+    "agency_patterns": "Substrings or regexes that identify staffing/recruiting agencies so reposted listings are filtered.",
+    "location_exclude_patterns": "Python regexes for locations outside your search_locations. Do not exclude countries you actually want.",
+    "role_rescue_keywords": "If a title fails the include gate but its description contains one of these, it gets a second look.",
+    "keywords": "Three lists used for description matching: domain (your industry terms), ai (AI/automation terms), tech (tooling terms).",
+    "path_check_instructions": "Dict keyed by path number as a string ('1', '2', ...), in the same order as query_packs. Each value is a 3-4 sentence discovery strategy: fit signals, what to look for, disqualifiers, and location requirements.",
+    "role_patterns": "Plain-text role titles (not regexes) used by monitoring and prospecting prompts.",
+    "scoring": "Keyword-to-weight maps, integers 1-10, higher = stronger signal. Groups: domain_keywords, ai_keywords, role_keywords, comp_indicators, growth_indicators, plus culture_keywords (lists, not weights).",
+    "path_aliases": "Maps fuzzy or shortened path names (lowercase) to exact query pack labels so LLM output normalizes correctly. Aim for 3-5 aliases per path.",
+    "display_groups": "Groups query pack labels into 3-4 dashboard categories. Each label must exactly match a pack's label field; unmapped paths display under Other.",
+    "company_aliases": "Maps name variants (lowercase) to one canonical company name for deduplication."
+  },
+  "setup_required": false,
+  "search_locations": ["United States"],
+  "query_packs": {
+    "early_stage_ai_healthcare": {
+      "label": "Early-Stage AI Healthcare Startups",
+      "queries": [
+        "implementation manager ai healthcare startup",
+        "solutions manager ai clinical platform seed series a",
+        "deployment lead ai patient care automation",
+        "manager ai healthcare startup"
+      ],
+      "locations": ["Remote", "United States"],
+      "job_type": "fulltime"
+    },
+    "enterprise_healthcare_sw": {
+      "label": "Enterprise Healthcare Software",
+      "queries": [
+        "solutions manager healthcare software",
+        "implementation lead enterprise clinical systems",
+        "deployment manager ehr platform",
+        "solutions architect healthcare software ai"
+      ],
+      "locations": ["Remote", "United States"],
+      "job_type": "fulltime"
+    },
+    "ai_platform_companies": {
+      "label": "AI Platform Companies",
+      "queries": [
+        "solutions architect ai platform healthcare vertical",
+        "forward deployed engineer ai platform enterprise",
+        "applied ai solutions manager healthcare"
+      ],
+      "locations": ["Remote", "United States"],
+      "job_type": "fulltime"
+    }
+  },
+  "role_include_patterns": [
+    "deployment (lead|manager|director)",
+    "implementation (lead|manager|consultant|director)",
+    "solutions (manager|architect|engineer|consultant)",
+    "clinical solutions",
+    "forward deployed engineer",
+    "automation (lead|manager|director)",
+    "ai (lead|manager|director)",
+    "innovation (lead|manager|director)",
+    "digital transformation (lead|director|manager)",
+    "senior manager",
+    "manager.*(deployment|implementation|solutions|ai|innovation)"
+  ],
+  "role_exclude_patterns": [
+    "intern",
+    "medical assistant",
+    "staff nurse",
+    "billing specialist",
+    "account executive",
+    "regional sales manager",
+    "data entry",
+    "clerk"
+  ],
+  "employer_exclude_patterns": [
+    "restaurant",
+    "hospitality",
+    "hotel",
+    "trucking",
+    "freight",
+    "retail",
+    "grocery",
+    "dealership"
+  ],
+  "agency_patterns": [
+    "staffing",
+    "recruiting",
+    "recruitment",
+    "talent partners"
+  ],
+  "location_exclude_patterns": [
+    "london",
+    "united kingdom",
+    "\\buk\\b",
+    "emea",
+    "europe",
+    "singapore",
+    "india",
+    "australia",
+    "canada"
+  ],
+  "role_rescue_keywords": [
+    "ai",
+    "solutions",
+    "implementation",
+    "deployment",
+    "automation",
+    "healthcare"
+  ],
+  "keywords": {
+    "domain": [
+      "healthcare",
+      "clinical",
+      "patient care",
+      "ehr",
+      "telehealth",
+      "care coordination",
+      "health system",
+      "revenue cycle"
+    ],
+    "ai": [
+      "ai",
+      "artificial intelligence",
+      "llm",
+      "agent",
+      "automation",
+      "copilot",
+      "deployment",
+      "transformation"
+    ],
+    "tech": [
+      "python",
+      "sql",
+      "api",
+      "workflow",
+      "integration",
+      "saas"
+    ]
+  },
+  "path_check_instructions": {
+    "1": "Search for Implementation Manager, Solutions Manager, and Deployment Lead roles at early-stage AI healthcare startups (Seed to Series A). Look for companies with recent funding building AI tools for clinicians, care teams, or health systems. Prioritize companies where domain expertise is a competitive advantage. Disqualify companies with no AI product or pure consulting shops. Roles must be available in the United States or Remote.",
+    "2": "Search for Solutions Manager, Implementation Lead, and Deployment Manager roles at enterprise healthcare software companies. Look for large vendors whose products serve hospitals, clinics, or payers and that are investing in AI. Disqualify companies where AI is purely marketing with no shipped features. Roles must be available in the United States or Remote.",
+    "3": "Search for Solutions Architect, Forward Deployed Engineer, and Applied AI roles (healthcare vertical) at AI platform companies. Look for teams focused on enterprise or healthcare verticals. Disqualify pure research roles with no customer-facing component. Roles must be available in the United States or Remote."
+  },
+  "role_patterns": [
+    "implementation lead",
+    "implementation manager",
+    "solutions manager",
+    "clinical solutions consultant",
+    "solutions architect",
+    "deployment lead",
+    "deployment manager",
+    "ai deployment lead",
+    "automation lead",
+    "forward deployed engineer",
+    "senior manager"
+  ],
+  "scoring": {
+    "domain_keywords": {
+      "healthcare": 10,
+      "clinical": 10,
+      "patient care": 9,
+      "ehr": 8,
+      "telehealth": 7,
+      "care coordination": 7,
+      "health system": 6,
+      "biotech": 5,
+      "pharma": 4,
+      "insurance": 3
+    },
+    "ai_keywords": {
+      "agentic ai": 10,
+      "ai agent": 10,
+      "ai-native": 9,
+      "llm": 8,
+      "generative ai": 8,
+      "machine learning": 7,
+      "ai deployment": 9,
+      "ai platform": 8,
+      "automation": 6,
+      "ai": 6
+    },
+    "role_keywords": {
+      "implementation lead": 10,
+      "implementation manager": 10,
+      "solutions manager": 10,
+      "clinical solutions consultant": 10,
+      "ai deployment lead": 10,
+      "solutions architect": 9,
+      "automation lead": 9,
+      "deployment manager": 9,
+      "forward deployed": 8,
+      "senior manager": 8
+    },
+    "comp_indicators": {
+      "public": 7,
+      "series e": 8,
+      "series d": 7,
+      "series c": 6,
+      "series b": 5,
+      "series a": 4,
+      "seed": 3,
+      "$150k": 9,
+      "$200k": 10,
+      "unicorn": 8,
+      "ipo": 8
+    },
+    "growth_indicators": {
+      "seed": 5,
+      "series a": 7,
+      "series b": 8,
+      "series c": 8,
+      "series d": 7,
+      "hypergrowth": 9,
+      "raised": 6,
+      "$100m": 8,
+      "$50m": 7,
+      "$10m": 5
+    },
+    "culture_keywords": {
+      "remote_flexible": [
+        "remote",
+        "distributed",
+        "flexible",
+        "hybrid"
+      ],
+      "innovation": [
+        "innovation",
+        "builder",
+        "startup",
+        "open source"
+      ],
+      "technical": [
+        "product-led",
+        "engineer",
+        "technical"
+      ],
+      "aspirational": [
+        "tier 1",
+        "dream",
+        "perfect",
+        "exactly"
+      ]
+    }
+  },
+  "path_aliases": {
+    "early stage ai healthcare": "Early-Stage AI Healthcare Startups",
+    "early-stage ai healthcare": "Early-Stage AI Healthcare Startups",
+    "ai healthcare startup": "Early-Stage AI Healthcare Startups",
+    "ai healthcare seed": "Early-Stage AI Healthcare Startups",
+    "enterprise healthcare software": "Enterprise Healthcare Software",
+    "enterprise healthcare": "Enterprise Healthcare Software",
+    "healthcare it": "Enterprise Healthcare Software",
+    "health tech enterprise": "Enterprise Healthcare Software",
+    "ai platform": "AI Platform Companies",
+    "ai platform companies": "AI Platform Companies",
+    "tier 1 ai": "AI Platform Companies",
+    "moonshot ai": "AI Platform Companies"
+  },
+  "display_groups": {
+    "AI Startups": ["Early-Stage AI Healthcare Startups"],
+    "Enterprise": ["Enterprise Healthcare Software"],
+    "Moonshots": ["AI Platform Companies"]
+  },
+  "company_aliases": {
+    "acme corporation": "Acme Corp",
+    "acme health": "Acme Corp",
+    "beta incorporated": "Beta Inc",
+    "dataco systems": "DataCo"
+  }
+}
