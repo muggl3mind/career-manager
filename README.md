@@ -106,9 +106,9 @@ Wave 1 -- Parallel search agents
       +-- Funding sweep: find recently-funded companies
       +-- Careers check: classify each as active_role or watch_list
 
-Expansion prep -- Python generates secondary context from Wave 1 results
+Expansion prep -- Optional. Python generates secondary context from Wave 1 results only when --expand is passed
 
-Wave 2 -- Parallel expansion agents (paths with 3+ Wave 1 results)
+Wave 2 -- Optional parallel expansion agents (paths with 3+ Wave 1 results)
   +-- Uses Wave 1 top performers as seeds
   +-- Competitor mining: alternatives to seed companies
   +-- Investor portfolio mining: portfolio companies of seed investors
@@ -122,6 +122,10 @@ Phase 3 -- Generates ranked action list + dashboard
   +-- Run diff: alerts on score changes or removed high-scorers
   +-- Action list: ranked by score with priority tiers (HIGH/MED/LOW)
 ```
+
+The eval agent reads `job-search/data/pending-eval.json` for batches of 40 or fewer jobs. Larger batches are split into `pending-eval-shard-N.json` files so each eval agent can handle one shard.
+
+Known companies are rechecked through a monitor cadence gate. Recently verified companies are skipped by default for 7 days, while applied, interviewing, and offer-stage companies are always included. Unreachable `fetch_empty` checks stay retryable on the next run.
 
 ### End-to-end career workflow
 
