@@ -13,7 +13,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from csv_io import write_csv_atomic
 
 REMOVED_COLUMNS = {
     'fit_score', 'fit_rationale', 'numeric_score', 'score_breakdown',
@@ -52,10 +56,7 @@ def migrate(path: Path, dry_run: bool = False) -> dict:
     new_header = [col for col in old_header if col not in REMOVED_COLUMNS]
 
     if not dry_run:
-        with path.open('w', newline='', encoding='utf-8') as f:
-            w = csv.DictWriter(f, fieldnames=new_header, extrasaction='ignore')
-            w.writeheader()
-            w.writerows(rows)
+        write_csv_atomic(path, rows, new_header)
 
     return {
         'status': 'migrated',

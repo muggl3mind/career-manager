@@ -25,7 +25,10 @@ from csv_schema import HEADER
 
 def test_unscored_jobs_not_in_scored_list(tmp_path):
     """Jobs without cached LLM scores must NOT appear in the scored list."""
-    # Set up a temporary seen-jobs.json with one cached entry
+    from datetime import datetime, timezone
+
+    # Set up a temporary seen-jobs.json with one cached entry whose
+    # verdict is fresh (within EVAL_CACHE_TTL_DAYS).
     seen_jobs = {
         'https://example.com/job-scored': {
             'llm_score': 78,
@@ -34,7 +37,7 @@ def test_unscored_jobs_not_in_scored_list(tmp_path):
             'llm_flags': '',
             'llm_hard_pass': 'false',
             'llm_hard_pass_reason': '',
-            'llm_evaluated_at': '2026-03-20T00:00:00Z',
+            'llm_evaluated_at': datetime.now(timezone.utc).isoformat(),
         }
     }
     seen_path = tmp_path / 'seen-jobs.json'
@@ -112,12 +115,17 @@ def test_apply_eval_adds_new_rows(tmp_path):
         w.writeheader()
         w.writerow(existing_row)
 
-    # Create eval-results.json with one existing update + one NEW job
+    # Create eval-results.json with one existing update + one NEW job.
+    # Scores use the canonical yes/no/unknown rubric (scripts/core/scoring.py);
+    # legacy 0-10 numeric dimension values are quarantined at merge.
+    from merge_validation import DEFAULT_DIMENSION_KEYS
+    dims = sorted(DEFAULT_DIMENSION_KEYS)
     eval_results = [
         {
             'careers_url': 'https://existing.com/job',
-            'total_score': 85,
-            'scores': {'technical': 40, 'domain': 45},
+            # 7 yes of 8 evaluated = 87
+            'total_score': 87,
+            'scores': {**{k: 1 for k in dims[:7]}, dims[7]: 0},
             'fit_summary': 'Updated fit',
             'red_flags': [],
             'hard_pass': False,
@@ -125,8 +133,9 @@ def test_apply_eval_adds_new_rows(tmp_path):
         },
         {
             'careers_url': 'https://newjob.com/apply',
-            'total_score': 72,
-            'scores': {'technical': 35, 'domain': 37},
+            # 5 yes of 7 evaluated = 71
+            'total_score': 71,
+            'scores': {**{k: 1 for k in dims[:5]}, dims[5]: 0, dims[6]: 0},
             'fit_summary': 'New job fit',
             'red_flags': ['no funding info'],
             'hard_pass': False,
@@ -195,14 +204,16 @@ def test_apply_eval_adds_new_rows(tmp_path):
     # Check the new row has correct data
     new_row = [r for r in rows if r['careers_url'] == 'https://newjob.com/apply'][0]
     assert new_row['company'] == 'NewCo'
-    assert new_row['llm_score'] == '72'
+    assert new_row['llm_score'] == '71'
+    assert new_row['llm_dimensions_evaluated'] == '7'
     assert new_row['open_positions'] == 'Data Engineer'
     assert new_row['source'] == 'indeed'
     assert new_row['llm_rationale'] == 'New job fit'
 
     # Check existing row was updated
     existing = [r for r in rows if r['careers_url'] == 'https://existing.com/job'][0]
-    assert existing['llm_score'] == '85'
+    assert existing['llm_score'] == '87'
+    assert existing['llm_dimensions_evaluated'] == '8'
 
 
 if __name__ == '__main__':

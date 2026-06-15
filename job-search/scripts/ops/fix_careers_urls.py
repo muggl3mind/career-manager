@@ -7,7 +7,11 @@ Workday job IDs, and other ephemeral job posting URLs.
 """
 
 import csv
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'core'))
+from csv_io import write_csv_atomic
 
 DATA = Path(__file__).resolve().parents[2] / 'data'
 TARGET_CSV = DATA / 'target-companies.csv'
@@ -58,10 +62,7 @@ def main():
             print(f"  WARN: {row['company']:<25} ephemeral URL but no stable mapping: {url[:70]}")
 
     if fixed:
-        with open(TARGET_CSV, 'w', newline='', encoding='utf-8') as f:
-            w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
-            w.writeheader()
-            w.writerows(rows)
+        write_csv_atomic(TARGET_CSV, rows, fieldnames)
         print(f"\nFixed {fixed} URLs in {TARGET_CSV.name}")
     else:
         print("No URLs needed fixing")

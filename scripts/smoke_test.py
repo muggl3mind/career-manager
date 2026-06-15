@@ -102,7 +102,7 @@ def main():
     if search_config.exists():
         from search_config_loader import load_search_config
         config = load_search_config(search_config)
-        check("search-config.json validates", lambda: True if config else "Validation failed — re-run onboarding")
+        check("search-config.json validates", lambda: True if config else "Validation failed. If search-config.json is still the shipped stub (setup_required: true), run the onboarding skill to generate a real config. See search-config.json.example for the expected format.")
         if config:
             check(f"query_packs: {len(config.get('query_packs', {}))} packs", lambda: True if config.get("query_packs") else "No query packs")
             scoring = config.get("scoring", {})
@@ -142,6 +142,32 @@ def main():
                 return "Template placeholder — run onboarding to personalize"
             return True
         check(label, check_file)
+
+    # --- 8. Python compile sweep ---
+    print("\n[Python Compile Sweep]")
+    skip_parts = {".venv", "venv", "__pycache__", "node_modules", ".git"}
+    py_files = sorted(
+        p for p in PROJECT_ROOT.rglob("*.py")
+        if not skip_parts.intersection(p.relative_to(PROJECT_ROOT).parts)
+    )
+    compile_errors = []
+    for py_file in py_files:
+        try:
+            source = py_file.read_text(encoding="utf-8", errors="replace")
+            compile(source, str(py_file), "exec")
+        except SyntaxError as e:
+            compile_errors.append((py_file, f"SyntaxError: {e.msg} (line {e.lineno})"))
+        except Exception as e:
+            compile_errors.append((py_file, f"{type(e).__name__}: {e}"))
+
+    def check_compile_sweep():
+        if not compile_errors:
+            return True
+        for bad_file, err in compile_errors:
+            print(f"{FAIL}    {bad_file.relative_to(PROJECT_ROOT)}: {err}")
+        return f"{len(compile_errors)} of {len(py_files)} file(s) failed to compile (listed above)"
+
+    check(f"py_compile: {len(py_files)} Python files", check_compile_sweep)
 
     # --- Summary ---
     print("\n" + "=" * 60)

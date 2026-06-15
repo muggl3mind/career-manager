@@ -23,6 +23,9 @@ import csv
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'core'))
+from csv_io import write_csv_atomic
+
 DATA = Path(__file__).resolve().parents[2] / 'data'
 TARGET_CSV = DATA / 'target-companies.csv'
 
@@ -72,13 +75,8 @@ def migrate(csv_path: Path, dry_run: bool = False) -> dict:
     if dry_run:
         return summary
 
-    # Write back atomically
-    tmp_path = csv_path.with_suffix('.csv.tmp')
-    with tmp_path.open('w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=new_fields)
-        writer.writeheader()
-        writer.writerows(rows)
-    tmp_path.replace(csv_path)
+    # Write back atomically (temp file + fsync + os.replace)
+    write_csv_atomic(csv_path, rows, new_fields, extrasaction='raise')
 
     return summary
 

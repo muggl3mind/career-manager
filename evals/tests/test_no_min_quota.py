@@ -129,7 +129,7 @@ class TestExpansionContextCarriesThresholds:
         cfg_path = self._setup_pass1(tmp_path)
 
         from web_prospecting import cmd_export_expansion
-        cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path)
+        cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path, expand=True)
 
         ctx = json.loads((tmp_path / "prospecting-context-path_a-expansion.json").read_text())
         assert 'discover_min_score' in ctx
@@ -139,7 +139,7 @@ class TestExpansionContextCarriesThresholds:
         cfg_path = self._setup_pass1(tmp_path)
 
         from web_prospecting import cmd_export_expansion
-        cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path)
+        cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path, expand=True)
 
         ctx = json.loads((tmp_path / "prospecting-context-path_a-expansion.json").read_text())
         instructions = ctx['instructions'].lower()

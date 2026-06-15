@@ -434,7 +434,8 @@ class TestProspectingResultsScoringSchema:
                 'path': 3,
                 'path_name': 'AI-Native Fintech',
                 'notes': 'Fast growing team.',
-                'llm_score': 78,
+                # Ratio spec: 7 yes of 9 evaluated -> floor(700/9) = 77.
+                'llm_score': 77,
                 'llm_dimensions_evaluated': 9,
                 'llm_rationale': 'Good domain fit. Strong AI centrality.',
                 'llm_path_name': 'AI-Native Fintech',
@@ -473,7 +474,7 @@ class TestProspectingResultsScoringSchema:
         assert len(nexus_rows) == 1, "Expected exactly one FinTech Nexus row"
         row = nexus_rows[0]
 
-        assert row['llm_score'] == '78', f"Expected llm_score=78, got {row['llm_score']!r}"
+        assert row['llm_score'] == '77', f"Expected llm_score=77, got {row['llm_score']!r}"
         assert row['llm_rationale'] == 'Good domain fit. Strong AI centrality.', \
             f"Unexpected llm_rationale: {row['llm_rationale']!r}"
         assert row['role_family'] == 'AI-Native Fintech', \

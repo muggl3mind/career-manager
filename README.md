@@ -48,7 +48,7 @@ Onboarding is a guided interview. Here's what you do vs. what Claude does:
 
 **Claude:**
 - Reads your resume and extracts your background
-- Derives 5-8 career paths from your experience and targets
+- Derives 4-5 career paths from your experience and targets
 - Generates all config files automatically:
   - `config.yaml` -- pipeline settings
   - `job-search/references/criteria.md` -- scoring rubric

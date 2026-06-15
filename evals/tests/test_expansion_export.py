@@ -44,7 +44,7 @@ def _make_pass1_results(path_key, companies):
     }
 
 
-def _write_search_config(tmp: Path, packs: dict) -> Path:
+def _write_search_config(tmp: Path, packs: dict, **extra) -> Path:
     cfg = {
         "query_packs": packs,
         "path_check_instructions": {
@@ -61,6 +61,7 @@ def _write_search_config(tmp: Path, packs: dict) -> Path:
                      "comp_indicators": {}, "growth_indicators": {}, "culture_keywords": {}},
         "path_aliases": {},
     }
+    cfg.update(extra)
     p = tmp / "search-config.json"
     p.write_text(json.dumps(cfg))
     return p
@@ -85,7 +86,7 @@ class TestExpansionExport:
             (tmp_path / f"prospecting-results-{pk}.json").write_text(json.dumps(data))
 
         from web_prospecting import cmd_export_expansion
-        rc = cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path)
+        rc = cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path, expand=True)
         assert rc == 0
 
         exp_files = sorted(tmp_path.glob("prospecting-context-*-expansion.json"))
@@ -104,7 +105,7 @@ class TestExpansionExport:
         (tmp_path / "prospecting-results-path_a.json").write_text(json.dumps(data))
 
         from web_prospecting import cmd_export_expansion
-        cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path)
+        cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path, expand=True)
 
         ctx = json.loads((tmp_path / "prospecting-context-path_a-expansion.json").read_text())
         instructions = ctx["instructions"]
@@ -131,7 +132,7 @@ class TestExpansionExport:
         (tmp_path / "prospecting-results-path_a.json").write_text(json.dumps(data))
 
         from web_prospecting import cmd_export_expansion
-        cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path)
+        cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path, expand=True)
 
         ctx = json.loads((tmp_path / "prospecting-context-path_a-expansion.json").read_text())
         skip = [s.lower() for s in ctx["known_companies_skip"]]
@@ -151,7 +152,7 @@ class TestExpansionExport:
         (tmp_path / "prospecting-results-path_a.json").write_text(json.dumps(data))
 
         from web_prospecting import cmd_export_expansion
-        cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path)
+        cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path, expand=True)
 
         exp_files = list(tmp_path.glob("prospecting-context-path_a-expansion.json"))
         assert len(exp_files) == 0
@@ -167,7 +168,7 @@ class TestExpansionExport:
         (tmp_path / "prospecting-results-path_b.json").write_text(json.dumps(data))
 
         from web_prospecting import cmd_export_expansion
-        cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path)
+        cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path, expand=True)
 
         exp_files = list(tmp_path.glob("prospecting-context-*-expansion.json"))
         assert len(exp_files) == 1
@@ -239,7 +240,7 @@ class TestCumulativeExpansionSeeds:
         (tmp_path / "prospecting-results-path_a.json").write_text(json.dumps(data))
 
         from web_prospecting import cmd_export_expansion
-        rc = cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path)
+        rc = cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path, expand=True)
         assert rc == 0
 
         # Expansion file should be written because 2 + 4 = 6 >= 3
@@ -265,7 +266,7 @@ class TestCumulativeExpansionSeeds:
         (tmp_path / "prospecting-results-path_a.json").write_text(json.dumps(data))
 
         from web_prospecting import cmd_export_expansion
-        rc = cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path)
+        rc = cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path, expand=True)
         assert rc == 0
 
         history_path = tmp_path / "expansion-history.json"
@@ -300,7 +301,7 @@ class TestCumulativeExpansionSeeds:
         (tmp_path / "expansion-history.json").write_text(json.dumps(history))
 
         from web_prospecting import cmd_export_expansion
-        rc = cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path)
+        rc = cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path, expand=True)
         assert rc == 0
 
         ctx = json.loads((tmp_path / "prospecting-context-path_a-expansion.json").read_text())
@@ -309,3 +310,110 @@ class TestCumulativeExpansionSeeds:
         # Never-seeded Co3 and Co4 should be among the seeds
         assert "Co3" in seed_names, f"Expected Co3 (never-seeded) in seeds, got: {seed_names}"
         assert "Co4" in seed_names, f"Expected Co4 (never-seeded) in seeds, got: {seed_names}"
+
+
+def _setup_pass1(tmp_path, search_locations=None):
+    """Common fixture: config, empty CSV, seen file, and 5 pass 1 results for path_a."""
+    from csv_schema import HEADER
+    extra = {"search_locations": search_locations} if search_locations else {}
+    cfg_path = _write_search_config(tmp_path, SAMPLE_PACKS, **extra)
+    _write_csv(tmp_path / "target-companies.csv", [], HEADER)
+    (tmp_path / "seen-companies.json").write_text("{}")
+    companies = [(f"Co{i}", 80 - i * 2) for i in range(5)]
+    data = _make_pass1_results("path_a", companies)
+    (tmp_path / "prospecting-results-path_a.json").write_text(json.dumps(data))
+    return cfg_path
+
+
+class TestExpansionOptIn:
+    def test_expansion_skipped_by_default(self, tmp_path):
+        """Without expand=True, export-expansion is a no-op: rc 0, no files, no history."""
+        cfg_path = _setup_pass1(tmp_path)
+
+        from web_prospecting import cmd_export_expansion
+        rc = cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path)
+        assert rc == 0
+        assert list(tmp_path.glob("prospecting-context-*-expansion.json")) == []
+        assert not (tmp_path / "expansion-history.json").exists()
+
+    def test_cli_export_expansion_noop_without_flag(self, tmp_path, monkeypatch):
+        _setup_pass1(tmp_path)
+        import web_prospecting
+        monkeypatch.setattr(web_prospecting, "DATA", tmp_path)
+        monkeypatch.setattr(sys, "argv", ["web_prospecting.py", "export-expansion"])
+        rc = web_prospecting.main()
+        assert rc == 0
+        assert list(tmp_path.glob("prospecting-context-*-expansion.json")) == []
+
+    def test_cli_export_expansion_runs_with_expand_flag(self, tmp_path, monkeypatch):
+        _setup_pass1(tmp_path)
+        import web_prospecting
+        monkeypatch.setattr(web_prospecting, "DATA", tmp_path)
+        monkeypatch.setattr(sys, "argv", ["web_prospecting.py", "export-expansion", "--expand"])
+        rc = web_prospecting.main()
+        assert rc == 0
+        assert (tmp_path / "prospecting-context-path_a-expansion.json").exists()
+        assert (tmp_path / "expansion-history.json").exists()
+
+
+class TestSearchLocationsEmbedding:
+    def test_perpath_context_embeds_search_locations(self, tmp_path):
+        from csv_schema import HEADER
+        cfg_path = _write_search_config(
+            tmp_path, SAMPLE_PACKS, search_locations=["United States", "Ireland"])
+        _write_csv(tmp_path / "target-companies.csv", [], HEADER)
+        (tmp_path / "seen-companies.json").write_text("{}")
+
+        from web_prospecting import cmd_export_perpath
+        rc = cmd_export_perpath(data_dir=tmp_path, config_path=cfg_path)
+        assert rc == 0
+
+        for pk in ["path_a", "path_b"]:
+            ctx = json.loads((tmp_path / f"prospecting-context-{pk}.json").read_text())
+            assert ctx["search_locations"] == ["United States", "Ireland"]
+
+    def test_perpath_context_defaults_search_locations_to_us(self, tmp_path):
+        from csv_schema import HEADER
+        cfg_path = _write_search_config(tmp_path, SAMPLE_PACKS)
+        _write_csv(tmp_path / "target-companies.csv", [], HEADER)
+        (tmp_path / "seen-companies.json").write_text("{}")
+
+        from web_prospecting import cmd_export_perpath
+        cmd_export_perpath(data_dir=tmp_path, config_path=cfg_path)
+
+        ctx = json.loads((tmp_path / "prospecting-context-path_a.json").read_text())
+        assert ctx["search_locations"] == ["United States"]
+
+    def test_expansion_context_embeds_search_locations(self, tmp_path):
+        cfg_path = _setup_pass1(tmp_path, search_locations=["United States", "Ireland"])
+
+        from web_prospecting import cmd_export_expansion
+        rc = cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path, expand=True)
+        assert rc == 0
+
+        ctx = json.loads((tmp_path / "prospecting-context-path_a-expansion.json").read_text())
+        assert ctx["search_locations"] == ["United States", "Ireland"]
+
+
+class TestCompactAgentExports:
+    def test_perpath_context_is_compact_json(self, tmp_path):
+        """Agent-facing context files are written without pretty-printing."""
+        from csv_schema import HEADER
+        cfg_path = _write_search_config(tmp_path, SAMPLE_PACKS)
+        _write_csv(tmp_path / "target-companies.csv", [], HEADER)
+        (tmp_path / "seen-companies.json").write_text("{}")
+
+        from web_prospecting import cmd_export_perpath
+        cmd_export_perpath(data_dir=tmp_path, config_path=cfg_path)
+
+        raw = (tmp_path / "prospecting-context-path_a.json").read_text()
+        assert "\n" not in raw
+
+    def test_expansion_context_is_compact_json(self, tmp_path):
+        cfg_path = _setup_pass1(tmp_path)
+
+        from web_prospecting import cmd_export_expansion
+        cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path, expand=True)
+
+        raw = (tmp_path / "prospecting-context-path_a-expansion.json").read_text()
+        assert "\n" not in raw

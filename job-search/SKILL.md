@@ -18,7 +18,6 @@ Data hub and scripts for the job search pipeline. Three-phase workflow: Python e
 ### `scripts/core/` (utilities)
 | Script | Purpose |
 |--------|---------|
-| `scripts/core/send_email.py` | Gmail API sender (OAuth2, config.yaml) |
 | `scripts/core/todoist_client.py` | Todoist API client wrapper |
 | `scripts/core/cv_index_resolver.py` | Portable CV index path resolution |
 
@@ -53,31 +52,32 @@ uv run job-search/scripts/ops/run_pipeline.py phase1 --skip-jobspy   # faster, s
 
 **Between waves:** After all Wave 1 prospecting agents complete and write their result files, run:
 ```
-uv run job-search/scripts/ops/web_prospecting.py export-expansion
+uv run job-search/scripts/ops/web_prospecting.py export-expansion --expand
 ```
+Wave 2 is opt-in. Pass `--expand` only on intentional expansion cycles; expansion agents cost roughly 500K tokens per run.
 This generates expansion context files from pass 1 results.
 
 **Wave 2:** Launch one **Expansion Prospecting agent** per `prospecting-context-{path_key}-expansion.json` file, all in parallel. These agents follow a graph-based protocol to find companies that pass 1 missed.
 
-**Location targeting (all agents):** Read `search_locations` from `data/search-config.json`. Only report companies with roles available in those locations (including Remote within those countries). If a company's only roles are outside `search_locations`, set status to `watch_list` and note the location mismatch. Do not mark location-mismatched roles as `active_role`.
+**Location targeting (all agents):** Use the `search_locations` array embedded in your context JSON. Do not read `data/search-config.json` for this. Only report companies with roles available in those locations (including Remote within those countries). If a company's only roles are outside `search_locations`, set status to `watch_list` and note the location mismatch. Do not mark location-mismatched roles as `active_role`.
 
-**Scoring (all agents):** Read `references/criteria.md`. Score each of the 10 dimensions 0-10. Total = sum (0-100). If fewer than 5 dimensions evaluable, set `llm_flags: "needs_research"` and skip scoring.
+**Scoring (all agents):** Read `references/criteria.md`. Assess each of the 10 dimensions as yes (fits), no (does not fit), or unknown (cannot determine). Unknown dimensions are null, never 0, and are excluded from the score. Score = (yes count / evaluated count) * 100, rounded down (7 yes of 8 evaluated = 87). If fewer than 5 of 10 dimensions are evaluable, set `llm_flags: "needs_research"` and omit the score. The canonical implementation is `scripts/core/scoring.py`; the keyword scorer is a fallback only and never overrides an `llm_score`.
 
 ### Monitor Agent
 
 1. Read `data/monitor-context.json`
 2. WebFetch each company's careers page (use `careers_url` if provided, otherwise WebSearch)
-3. Score using 0-10 per dimension from `references/criteria.md`
+3. Score using the yes/no/unknown ratio method from `references/criteria.md` (see Scoring above)
 4. If Tavily configured (`tavily_enabled: true` in config.yaml), use Tavily Map on `careers_url` to capture direct `role_url` links
 5. Report progress every 5 companies (e.g., "8/18 done, 2 new roles found")
 6. Write `data/monitor-results.json`
 
 **Output fields** (flat — consumed by `monitor_watchlist.py`):
-`company`, `website`, `careers_url`, `role_url`, `open_positions`, `status` (REQUIRED: `active_role|no_change|watch_list`), `path`, `path_name`, `notes`, `llm_score` (0-100), `llm_dimensions_evaluated` (0-10), `llm_rationale`, `role_family`, `llm_flags` (pipe-separated string)
+`company`, `website`, `careers_url`, `role_url`, `open_positions`, `status` (REQUIRED: `active_role|no_change|watch_list`), `path`, `path_name`, `notes`, `llm_score` (0-100), `llm_dimensions_evaluated` (0-10), `llm_rationale`, `role_family`, `llm_flags` (comma-separated string; canonical separator is defined in `scripts/core/flags.py`, readers also accept legacy `|`)
 
 ### Eval Agent
 
-1. Read `data/pending-eval.json` (descriptions pre-truncated to 3KB by evaluate_jobs.py; ~114 jobs is ~400-500KB total)
+1. Read your assigned shard: `data/pending-eval-shard-N.json` (1-based, up to 40 jobs each). Batches of 40 or fewer jobs still ship as the legacy single file `data/pending-eval.json`. Descriptions are pre-truncated to 3KB by evaluate_jobs.py.
 2. Score from the inline `description`, `title`, `company`, and `location` fields — do **NOT** WebFetch job URLs
 3. **Exception:** WebFetch only if `is_agency: true` (to find real employer) or `description` is empty/missing
 4. **Agency handling:** Visit job URL, find actual hiring company, set `actual_company`. If not found, set `actual_company: null` and add `agency_unresolved` to `red_flags`
@@ -87,7 +87,7 @@ This generates expansion context files from pass 1 results.
 8. Write `data/eval-results.json`
 
 **Output fields** (nested — consumed by `apply_eval_results.py`):
-`careers_url`, `actual_company`, `path`, `path_name`, `scores` (object: `background_asset`, `ai_central`, `can_influence`, `non_traditional_welcome`, `comp_200k_path`, `growth_path`, `funding_supports_comp`, `problems_exciting`, `culture_public_voice`, `global_leverage` — each 0-10), `total_score` (0-100), `fit_summary`, `hard_pass` (bool), `hard_pass_reason`, `red_flags` (array of strings)
+`careers_url`, `actual_company`, `path`, `path_name`, `scores` (object: `background_asset`, `ai_central`, `can_influence`, `non_traditional_welcome`, `comp_200k_path`, `growth_path`, `funding_supports_comp`, `problems_exciting`, `culture_public_voice`, `global_leverage`; each `1` if it fits, `0` if it does not; omit dimensions you cannot assess, never score unknowns as 0), `total_score` (0-100: yes count / evaluated count * 100, rounded down; if fewer than 5 dimensions are assessable set `total_score: 0` and add `needs_research` to `red_flags`, which the merge stores as "not scored"), `fit_summary`, `hard_pass` (bool), `hard_pass_reason`, `red_flags` (array of strings)
 
 ### Prospecting Agents (per-path)
 
@@ -120,7 +120,7 @@ For each path context file:
 }
 ```
 
-**Output fields** (in each result): `company`, `website`, `careers_url`, `role_url`, `industry`, `size`, `stage`, `recent_funding`, `tech_signals`, `open_positions`, `prospect_status` (`active_role|watch_list`), `fit_rationale`, `path`, `path_name`, `notes`, `llm_score` (0-100), `llm_dimensions_evaluated` (0-10), `llm_rationale`, `role_family`, `llm_flags` (pipe-separated), `queries_used` (array), `watch_reason` (required if watch_list: `no_careers_page|no_matching_roles|roles_wrong_location|company_too_early|domain_mismatch|unable_to_verify`), `watch_evidence` (required if watch_list: specific evidence string)
+**Output fields** (in each result): `company`, `website`, `careers_url`, `role_url`, `industry`, `size`, `stage`, `recent_funding`, `tech_signals`, `open_positions`, `prospect_status` (`active_role|watch_list`), `fit_rationale`, `path`, `path_name`, `notes`, `llm_score` (0-100), `llm_dimensions_evaluated` (0-10), `llm_rationale`, `role_family`, `llm_flags` (comma-separated; canonical separator is defined in `scripts/core/flags.py`), `queries_used` (array), `watch_reason` (required if watch_list: `no_careers_page|no_matching_roles|roles_wrong_location|company_too_early|domain_mismatch|unable_to_verify`), `watch_evidence` (required if watch_list: specific evidence string)
 
 ### Expansion Prospecting Agents (per-path, Wave 2)
 
@@ -196,17 +196,18 @@ After completing any action (1-4), return to the menu so the user can take multi
 
 | Column | Description |
 |--------|-------------|
-| `llm_score` | Fit score 0-100 (sum of 10 dimension scores) |
+| `llm_score` | Fit score 0-100: (yes dimensions / evaluated dimensions) * 100. Empty when fewer than 5 of 10 dimensions were evaluable (`needs_research`). A `0` is a real score (0 yes of 5+ evaluated), never written as an empty cell. Canonical formula: `scripts/core/scoring.py` |
+| `llm_dimensions_evaluated` | Confidence: how many of the 10 dimensions were assessed yes or no for this score. A 90 on 10 dimensions is stronger evidence than a 90 on 5 |
 | `role_family` | Path label |
 | `llm_rationale` | 2-3 sentence fit explanation |
-| `llm_flags` | Pipe-separated flags |
+| `llm_flags` | Comma-separated flags (canonical: `scripts/core/flags.py`; legacy pipe separator still accepted by readers) |
 | `llm_hard_pass` | true = excluded |
 | `llm_hard_pass_reason` | Reason if hard_pass |
 | `llm_evaluated_at` | ISO timestamp |
 
 ## Cache behavior
-- `seen-jobs.json` — Already-evaluated jobs skipped on re-run
-- `seen-companies.json` — Tracks `first_seen` and `last_checked` per company. Companies checked within 7 days are skipped; stale companies (>7 days) re-checked. Named targets always checked regardless of cache
+- `seen-jobs.json` — Already-evaluated jobs skipped on re-run. Cached verdicts expire after 30 days (`EVAL_CACHE_TTL_DAYS` in `scripts/ops/evaluate_jobs.py`): a job re-posted at the same URL after that window gets a fresh evaluation instead of keeping its old score forever. Hard-passed jobs stay excluded while their cached verdict is fresh (they are skipped entirely, never restored to the active list) and are re-evaluated only after the TTL expires.
+- `seen-companies.json` — Tracks `first_seen` and `last_checked` per company. Companies checked within 7 days are skipped; stale companies (>7 days) re-checked. Named targets always checked regardless of cache. Hard-passed companies (moved to `raw-discovery.csv`) are always on the prospecting skip list, and the expansion-pass skip list contains every known company regardless of staleness.
 
 ## Recommended cadence
 - Monitor: 2-3x/week (Tuesday, Thursday, optionally Saturday)

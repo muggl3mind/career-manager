@@ -67,7 +67,9 @@ Derive paths in two phases:
 1. **From resume:** For each sector or employer type the user spent 2+ years in, derive a career path. Group similar employers (e.g., multiple Big 4 firms = one "Professional Services / Advisory" path, not four). If no employer meets the 2-year threshold, use the user's longest-tenured roles regardless.
 2. **From targets:** Add paths from the user's stated target roles that aren't already covered by Phase 1.
 
-Merge only paths that are truly redundant (same companies, same roles). Prefer granular paths over merged ones. When in doubt, keep them separate. List Phase 1 paths first (longest tenure first), then Phase 2 paths. Final count: 5-8 paths.
+Merge only paths that are truly redundant (same companies, same roles). Prefer granular paths over merged ones. When in doubt, keep them separate. List Phase 1 paths first (longest tenure first), then Phase 2 paths. Final count: 4-5 paths. Every path adds agents, tokens, and wall-clock time to each pipeline run, so default to the smallest set that covers the user's strongest angles. If more than 5 strong candidates emerge, keep the 4-5 strongest now and save the rest.
+
+When presenting the paths, tell the user explicitly: "I'm starting with 4-5 focused paths so each search run stays fast. You can add more paths later by re-running onboarding whenever your goals expand."
 
 Anything you'd change?"
 
@@ -85,7 +87,7 @@ After confirmation, generate all files **silently**. No overwrite warnings. No "
 
 Generate from `config.yaml.example` template with:
 - `paths.cv_base` set to the directory where the user's resume was found (parent of the file they provided)
-- All integrations set to `false`
+- Credential-based integrations (`todoist_enabled`, `gmail_enabled`, `tavily_enabled`) set to `false`; keep `jobspy_enabled: true` so the first discovery run can scrape job boards
 - Email fields left as placeholders
 
 #### File 2: `job-search/references/criteria.md`
@@ -100,7 +102,7 @@ Generate with this structure. The rubric must be CALIBRATED (tight, evidence-bas
 [Role categories with descriptions]
 
 ## Target Company Types
-[5-8 career paths. Each path has:]
+[4-5 career paths. Each path has:]
 ### Path N: [Path Name]
 - **Description:** [What kind of companies]
 - **Example Companies:** [2-3 well-known examples for context, not monitored]
@@ -110,7 +112,7 @@ Generate with this structure. The rubric must be CALIBRATED (tight, evidence-bas
 
 ## Evaluation Framework
 
-10 scoring dimensions, each scored 0-10. Total score = sum (0-100).
+10 scoring dimensions, each assessed yes (fits), no (does not fit), or unknown (cannot determine). Unknown dimensions are null, never 0, and are excluded from the score. Total score = (yes count / evaluated count) * 100, rounded down. Canonical implementation: `job-search/scripts/core/scoring.py`.
 
 ### Group 1: Core Fit (4 dimensions)
 ### Group 2: Compensation & Career (3 dimensions)
@@ -118,21 +120,21 @@ Generate with this structure. The rubric must be CALIBRATED (tight, evidence-bas
 
 For EACH dimension you generate, produce:
 - **Name** and 1-line purpose.
-- **Score anchors** for 0, 3, 5, 7, 9 — each anchor is a concrete observable example, not an adjective. "Score 9 = public Levels.fyi data showing $200K+ TC at this level" is good. "Score 9 = very high comp" is bad.
-- **Evidence required for 7+.** Named source (job posting, employee review, funding announcement, public statement, etc.). If evidence is unavailable, score 5 or below — not 7+ by default.
-- **Default when unknown:** 5 (middle-of-band neutral), not 7.
+- **Yes condition.** A concrete observable test, not an adjective. "Yes = public Levels.fyi data showing $200K+ TC at this level" is good. "Yes = pays well" is bad.
+- **No condition.** The concrete observable that rules the dimension out.
+- **Evidence required for yes.** Named source (job posting, employee review, funding announcement, public statement, etc.). If evidence is unavailable, the dimension is unknown (null), never a yes by default.
 
-Emphasize in the rubric itself: "If you cannot find specific evidence, default to 5 rather than assuming the best case. A company without disclosed comp is a 5, not a 9."
+Emphasize in the rubric itself: "If you cannot find specific evidence, mark the dimension unknown rather than assuming the best case. A company without disclosed comp is unknown (null), not a yes, and not a 0."
 
 ## Scoring Guide
 
 Thresholds align with `pipeline.action_list.*_min_score` in `config.yaml`:
 - **85-100 (HIGH):** Pursue aggressively. Cold outreach or immediate apply.
-- **70-84 (MED):** Strong fit with current evidence — apply if role is open.
+- **70-84 (MED):** Strong fit with current evidence. Apply if role is open.
 - **60-69 (LOW):** Moderate fit. Watch list or skip unless specific role matches.
 - **<60:** Skip.
 
-**Handling unknowns:** If fewer than 5 of 10 dimensions are assessable, set `llm_flags: "needs_research"` and omit the score. Otherwise, unknown dimensions default to 5, not the top of the scale.
+**Handling unknowns:** Unknown dimensions are null, never 0. They are excluded from the ratio, so missing information never penalizes (or inflates) a company. If fewer than 5 of 10 dimensions are assessable, set `llm_flags: "needs_research"` and omit the score. The keyword scorer is a fallback only, used for rows with no `llm_score`; it never overrides one.
 
 **Distributional check:** When this rubric is applied to the user's existing target list, expect roughly:
 - ~20% score ≥85 (genuine A-tier)
@@ -140,7 +142,7 @@ Thresholds align with `pipeline.action_list.*_min_score` in `config.yaml`:
 - ~35% score 60-69 (C-tier, watch)
 - ~15% score <60 (skip)
 
-If the distribution is heavily skewed high, the rubric is too loose — tighten anchors.
+If the distribution is heavily skewed high, the rubric is too loose. Tighten the yes conditions and evidence requirements.
 ```
 
 #### File 3: `job-search/references/background-context.md`
@@ -211,7 +213,7 @@ Generate valid JSON matching this exact structure. **Pay close attention to type
 - `path_check_instructions` is a **dict keyed by path number as string** ("1", "2", etc.), NOT a single string
 - One query pack per career path (for JobSpy)
 - All regex patterns must be valid Python regex, no inline flags like `(?i)`
-- Minimum: 5 paths, 3+ queries per pack
+- 4-5 paths (one pack each), 3+ queries per pack. Users add more paths later by re-running onboarding
 - `display_groups` groups related query pack labels into 3-4 dashboard display categories. Each label must match a query pack's `label` field exactly. Paths not mapped go to "Other"
 
 **Search locations:**
@@ -245,13 +247,14 @@ If any check fails: report the specific issue and fix it.
 
 ### Step 6: Start First Search
 
-Automatically hand off to the job-search skill and run the full pipeline. Do not ask the user for confirmation — they just completed setup, so the next step is always discovery.
+Automatically hand off to the job-search skill and run the full pipeline. Do not ask the user for confirmation; they just completed setup, so the next step is always discovery.
 
 ## Re-run Behavior
 
 If the user has already run onboarding (files exist):
 - Ask: "You already have a profile set up. What's changed?"
 - Only regenerate files that need updating
+- This is also how users add career paths beyond the initial 4-5: extend `query_packs`, `path_check_instructions`, `path_aliases`, and `display_groups` in search-config.json and add matching path sections to criteria.md
 - Never touch pipeline data (target-companies.csv, applications.csv)
 
 ## Boundaries

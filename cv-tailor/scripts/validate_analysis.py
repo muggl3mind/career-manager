@@ -89,8 +89,11 @@ def validate(obj: dict) -> tuple[list[str], list[str]]:
             if not isinstance(e, dict) or not e.get('old') or not e.get('new'):
                 errs.append(f'{k}[{i}] invalid old/new')
 
-    if not isinstance(obj.get('cover_letter_paragraphs'), list) or len(obj['cover_letter_paragraphs']) < 3:
+    clp = obj.get('cover_letter_paragraphs')
+    if not isinstance(clp, list) or len(clp) < 3:
         errs.append('cover_letter_paragraphs must have at least 3 paragraphs')
+    elif any(not str(p).strip() for p in clp):
+        errs.append('cover_letter_paragraphs must not contain empty or whitespace-only paragraphs')
     if not isinstance(obj.get('claims_guardrail'), list) or len(obj['claims_guardrail']) < 1:
         errs.append('claims_guardrail must be non-empty')
 

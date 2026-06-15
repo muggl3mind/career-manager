@@ -87,6 +87,46 @@ def qc(resume_path: str, redline_path: str) -> dict:
     }
 
 
+def qc_cover_letter(cover_path: str) -> dict:
+    """Quality gate for the generated cover letter.
+
+    Checks the same content rules as the resume gate (buzzword blocklist,
+    em dash ban) plus a minimum-content check. Cover letters do not have the
+    resume's required sections, so those are not enforced here.
+    """
+    d = Document(cover_path)
+    lines = [p.text.strip() for p in d.paragraphs if p.text.strip()]
+    text = '\n'.join(lines)
+
+    ok = True
+    reasons = []
+
+    # Rendered letter = date, addressee, Re: line, greeting, body paragraphs,
+    # sign-off, name. The scaffold alone is exactly 6 non-empty lines, so
+    # fewer than 7 means there is no body at all.
+    if len(lines) < 7:
+        ok = False
+        reasons.append(f'cover letter too short: {len(lines)} non-empty lines (scaffold is 6; no body found)')
+
+    found_buzzwords = _check_buzzwords(text)
+    if found_buzzwords:
+        ok = False
+        reasons.append('blocked phrases found: ' + ', '.join(found_buzzwords))
+
+    em_dash_found = EM_DASH in text
+    if em_dash_found:
+        ok = False
+        reasons.append('em dash found, use comma, period, or parentheses instead')
+
+    return {
+        'status': 'pass' if ok else 'fail',
+        'non_empty_lines': len(lines),
+        'buzzwords_found': found_buzzwords,
+        'em_dash_found': em_dash_found,
+        'reasons': reasons,
+    }
+
+
 if __name__ == '__main__':
     import argparse
     ap = argparse.ArgumentParser()

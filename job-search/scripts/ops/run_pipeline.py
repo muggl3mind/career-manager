@@ -191,6 +191,8 @@ def phase1(skip_jobspy: bool = False, limit: int = 35) -> dict:
             pending = DATA / 'pending-eval.json'
             if pending.exists():
                 results['files_for_claude'].append(str(pending))
+            for shard in sorted(DATA.glob('pending-eval-shard-*.json')):
+                results['files_for_claude'].append(str(shard))
 
     # Step 3: Web prospecting export
     print("\n[3/3] Web prospecting export...")

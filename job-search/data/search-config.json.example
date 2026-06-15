@@ -4,7 +4,7 @@
     "how_to_use": "Recommended: run the onboarding skill, which generates a personalized search-config.json from your resume and goals. Manual: copy this file to search-config.json, replace every placeholder value, and set setup_required to false.",
     "setup_required": "Boolean. The shipped search-config.json stub sets this to true and the pipeline refuses to run until it is false (or removed). Set to false once you have personalized the file.",
     "search_locations": "Countries to search. Each query pack's locations field should contain these plus Remote.",
-    "query_packs": "Dict keyed by snake_case path key, one pack per career path. Each value needs label (human-readable path name), queries (3+ search strings), locations, and job_type. Onboarding generates 5 to 8 packs; this template shows 3.",
+    "query_packs": "Dict keyed by snake_case path key, one pack per career path. Each value needs label (human-readable path name), queries (3+ search strings), locations, and job_type. Onboarding generates 4 to 5 packs; this template shows 3.",
     "role_include_patterns": "Python regexes. A job title must match at least one to pass the title gate. No inline flags like (?i); matching is case-insensitive already.",
     "role_exclude_patterns": "Python regexes. Titles matching any of these are rejected even if an include pattern matched.",
     "employer_exclude_patterns": "Python regexes matched against employer names. Use for industries or org types you never want.",

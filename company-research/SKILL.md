@@ -66,7 +66,11 @@ User says: "research [company]", "look into [company]", "what do you know about 
 These steps happen automatically after every dossier. Do not ask the user.
 
 1. Save dossier to `company-research/dossiers/[company].md`
-2. Update `job-search/data/target-companies.csv` with findings (fit_score, fit_rationale, industry, size, stage, recent_funding, tech_signals)
+2. Merge findings into the tracker via the merge script (NEVER edit target-companies.csv directly):
+   - Write `job-search/data/research-results.json` as a JSON object (or array) per company.
+   - Allowed keys: `company` (required), `website`, `careers_url`, `role_url`, `industry`, `size`, `stage`, `recent_funding`, `tech_signals`, `open_positions`, `notes`, `role_family`, plus scoring fields `llm_score`, `llm_dimensions_evaluated`, `llm_rationale`, `llm_flags`, `scores`.
+   - Scoring fields must follow the canonical ratio method (`job-search/scripts/core/scoring.py`); omit `llm_score` if fewer than 5 of 10 dimensions were evaluable. Unknown columns are rejected to quarantine, not merged.
+   - Run: `uv run job-search/scripts/ops/merge_research.py`
 3. If recommendation is PURSUE, suggest: "Want me to tailor your CV for [role] at [company]?"
 4. If recommendation is RESEARCH MORE, suggest: "Want me to dig deeper on [specific gap]?"
 5. If recommendation is PASS, no suggestion needed.

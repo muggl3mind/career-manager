@@ -22,7 +22,7 @@
    ```
    uv run cv-tailor/scripts/run_pipeline.py --phase apply --company "..." --role "..."
    ```
-   Validates schema, patches resume, generates cover letter + redline + QC report + manifest.
+   Validates schema, runs the deterministic claims gate (numbers, credentials, employers, and dates in all four edit categories and the cover letter must exist in the base CV or user profile), patches resume, generates cover letter + redline + QC report + manifest. The cover letter goes through the quality gate as well.
 7. Show user:
    - Manifest status (pass/fail)
    - File paths for all artifacts
@@ -54,6 +54,7 @@
 ## Failure Behavior
 
 - If analysis.json validation fails: surface all errors, do not run apply phase.
+- If the claims gate fails: surface every violation message, fix the offending edits in `data/analysis.json`, re-run apply. Failed runs keep `data/analysis.json` for debugging.
 - If style/layout drifts: stop and switch to micro-edit mode.
 - If JD extraction is thin: ask for pasted JD text.
 - If `.docx` dependencies fail under system python: run using workspace venv.
