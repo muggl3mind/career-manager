@@ -39,6 +39,16 @@ Change priority level.
 ### `archive`
 Show all applications including closed ones.
 
+## After Any Mutation
+
+After any command that changes `data/applications.csv` (`add`, `update`, `notes`, `contact`, `priority`), regenerate the dashboard automatically:
+
+```
+uv run job-search/scripts/ops/generate_dashboard.py
+```
+
+Do not ask the user; this keeps the dashboard in sync with the tracker.
+
 ## Implementation
 
 Use `scripts/tracker_commands.py` for all CSV operations. Import and call functions directly — don't rewrite CSV logic.

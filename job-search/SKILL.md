@@ -46,6 +46,8 @@ uv run job-search/scripts/ops/run_pipeline.py phase1
 uv run job-search/scripts/ops/run_pipeline.py phase1 --skip-jobspy   # faster, skip job board scrape
 ```
 
+When phase1 exits 0, immediately launch the Wave 1 agents (next section) in the same turn — no pause, no confirmation prompt.
+
 ## Agent Work — parallel sub-agent dispatch
 
 **Wave 1:** Use the **Agent tool** to launch sub-agents in parallel: one Eval agent, one Monitor agent, and **one Prospecting agent per career path** (one per `prospecting-context-{path_key}.json` file in the data directory). Make all Agent tool calls in a single response so they run concurrently.
