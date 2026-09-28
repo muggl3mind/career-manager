@@ -1,0 +1,1 @@
+Read interview-prep/SKILL.md. Generate interview prep for: $ARGUMENTS

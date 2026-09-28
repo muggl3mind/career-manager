@@ -32,6 +32,7 @@ Use the briefing to inform which workflow to suggest.
 - **Application pipeline CRUD + follow-up reporting** - `job-tracker`
 - **First-time setup / profile update / regenerate config** - `onboarding`
 - **"Tailor my CV" / "apply to [role]"** - `cv-tailor`
+- **"Prep me for the [company] interview" / "interview prep for [company]"** - `interview-prep`
 
 ## Cross-Skill Flow
 
@@ -44,6 +45,7 @@ After any skill completes, suggest the logical next action (one suggestion, not 
 | Company research says PURSUE | "Want me to tailor your CV for [role] at [company]?" |
 | CV tailor produces artifacts | "Want me to add this to your tracker?" |
 | Job tracker shows stale follow-ups | "Want me to draft follow-up text for these?" |
+| Job tracker status becomes interviewing | "Want an interview prep doc for [company]?" |
 
 These are suggestions. The user can always decline.
 
@@ -56,6 +58,7 @@ Route by work type, not by habit:
 | Prospecting, eval, monitor agents (job-search) | `sonnet` | Bulk search + rubric scoring; volume dominates cost (~500K tokens/wave) |
 | Company research dossiers | `sonnet` | Structured extraction from web sources |
 | CV tailoring, onboarding, interview-prep drafting | session default | Human-facing writing; quality over cost |
+| Independent review passes (e.g. interview-prep review) | `sonnet` | Structured checking against explicit criteria |
 
 Every Agent tool dispatch in the SKILL.md files states its model explicitly. If a dispatch instruction has no model, that is a bug — fix the instruction, don't guess.
 
