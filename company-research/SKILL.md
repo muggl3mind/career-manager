@@ -11,6 +11,10 @@ Generate a consistent company dossier for job search decision-making.
 
 User says: "research [company]", "look into [company]", "what do you know about [company]", or agent identifies a company worth investigating.
 
+## Dispatch
+
+Run the research as ONE Agent-tool subagent with `model: sonnet`. The subagent produces the dossier (structure below), saves it, writes `job-search/data/research-results.json`, and runs the merge script (After Research steps 1–2). The parent session then reads the saved dossier, presents the summary, and offers the next step (After Research steps 3–5). Bulk web research does not need the session-default model; the dossier is structured extraction, not user-facing prose.
+
 ## Output Format (ALWAYS this structure)
 
 ### 1) Overview

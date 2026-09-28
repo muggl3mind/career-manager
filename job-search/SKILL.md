@@ -50,6 +50,8 @@ uv run job-search/scripts/ops/run_pipeline.py phase1 --skip-jobspy   # faster, s
 
 **Wave 1:** Use the **Agent tool** to launch sub-agents in parallel: one Eval agent, one Monitor agent, and **one Prospecting agent per career path** (one per `prospecting-context-{path_key}.json` file in the data directory). Make all Agent tool calls in a single response so they run concurrently.
 
+**Model (all dispatches in this skill):** Pass `model: sonnet` in every Agent tool call — Eval, Monitor, and Prospecting agents in both waves. These are bulk research/scoring agents; never spend the session-default model on them.
+
 **Between waves:** After all Wave 1 prospecting agents complete and write their result files, run:
 ```
 uv run job-search/scripts/ops/web_prospecting.py export-expansion --expand
@@ -57,7 +59,7 @@ uv run job-search/scripts/ops/web_prospecting.py export-expansion --expand
 Wave 2 is opt-in. Pass `--expand` only on intentional expansion cycles; expansion agents cost roughly 500K tokens per run.
 This generates expansion context files from pass 1 results.
 
-**Wave 2:** Launch one **Expansion Prospecting agent** per `prospecting-context-{path_key}-expansion.json` file, all in parallel. These agents follow a graph-based protocol to find companies that pass 1 missed.
+**Wave 2:** Launch one **Expansion Prospecting agent** per `prospecting-context-{path_key}-expansion.json` file, all in parallel. These agents follow a graph-based protocol to find companies that pass 1 missed. Dispatch expansion agents with `model: sonnet` like all other agents in this skill.
 
 **Location targeting (all agents):** Use the `search_locations` array embedded in your context JSON. Do not read `data/search-config.json` for this. Only report companies with roles available in those locations (including Remote within those countries). If a company's only roles are outside `search_locations`, set status to `watch_list` and note the location mismatch. Do not mark location-mismatched roles as `active_role`.
 

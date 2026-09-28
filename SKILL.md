@@ -47,6 +47,18 @@ After any skill completes, suggest the logical next action (one suggestion, not 
 
 These are suggestions. The user can always decline.
 
+## Model Policy
+
+Route by work type, not by habit:
+
+| Work | Model | Why |
+|---|---|---|
+| Prospecting, eval, monitor agents (job-search) | `sonnet` | Bulk search + rubric scoring; volume dominates cost (~500K tokens/wave) |
+| Company research dossiers | `sonnet` | Structured extraction from web sources |
+| CV tailoring, onboarding, interview-prep drafting | session default | Human-facing writing; quality over cost |
+
+Every Agent tool dispatch in the SKILL.md files states its model explicitly. If a dispatch instruction has no model, that is a bug — fix the instruction, don't guess.
+
 ## Source of Truth
 
 - `job-search/data/target-companies.csv`
