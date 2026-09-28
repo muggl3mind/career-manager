@@ -1,5 +1,7 @@
-"""Tests for generate_dashboard.py data layer."""
+"""Tests for generate_dashboard.py: data layer (unchanged) plus the new
+JSON-driven rendering layer (build_dashboard_data / build_html)."""
 import csv
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -10,9 +12,19 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'job-search' / 'scripts' / 'ops'))
 from generate_dashboard import (
     read_target_companies, read_applications, merge_data, get_score, parse_roles,
-    classify_staleness, suggested_action, get_section, build_followup_cards,
-    build_bestfits_section, build_pipeline_table, build_html, compute_stats
+    classify_staleness, suggested_action, get_section, build_html, compute_stats,
+    build_dashboard_data, _merged_to_views,
 )
+
+
+def _extract_embedded_data(html_out: str) -> dict:
+    """Pull the JSON blob the client-side renderer consumes out of a rendered page."""
+    import re
+    match = re.search(
+        r'<script type="application/json" id="dashboard-data">(.*?)</script>',
+        html_out, re.DOTALL)
+    assert match, 'embedded dashboard-data script tag not found'
+    return json.loads(match.group(1))
 
 
 def _write_csv(path: Path, headers: list[str], rows: list[list[str]]):
@@ -222,8 +234,20 @@ class TestClassifyForSections:
         assert get_section({'app_status': ''}) == 'bestfits'
 
 
-class TestBuildFollowupCards:
-    def test_renders_company_name(self):
+def _views_with_followup(rows):
+    return {
+        'follow_up': rows, 'best_fits': [], 'worth_exploring': [], 'closed_out': [],
+        'stats': {'follow_up': len(rows), 'best_fits': 0, 'worth_exploring': 0,
+                   'closed_out': 0, 'total': len(rows)},
+    }
+
+
+class TestFollowupData:
+    """build_dashboard_data()'s follow_up records replace the old
+    build_followup_cards() HTML string builder — the client renders the cards
+    from this JSON, so we assert on the record fields it needs instead."""
+
+    def test_record_has_company_and_score(self):
         rows = [{
             'company': 'Acme', 'llm_score': '90', 'open_positions': 'PM',
             'date_added': '2026-01-01', 'date_applied': '2026-01-01',
@@ -231,10 +255,13 @@ class TestBuildFollowupCards:
             'app_status': 'applied', 'role_family': 'AI',
             'careers_url': '', 'role_url': '',
         }]
-        html_out = build_followup_cards(rows)
-        assert 'Acme' in html_out
+        data = build_dashboard_data(_views_with_followup(rows), full_mode=False)
+        rec = data['sections']['follow_up'][0]
+        assert rec['company'] == 'Acme'
+        assert rec['score'] == 90.0
+        assert rec['score_display'] == '90'
 
-    def test_shows_stale_border_class(self):
+    def test_staleness_and_suggested_action_present(self):
         old_date = (date.today() - timedelta(days=20)).isoformat()
         rows = [{
             'company': 'Acme', 'llm_score': '90', 'open_positions': 'PM',
@@ -243,26 +270,21 @@ class TestBuildFollowupCards:
             'app_status': 'applied', 'role_family': 'AI',
             'careers_url': '', 'role_url': '',
         }]
-        html_out = build_followup_cards(rows)
-        assert 'stale' in html_out
+        data = build_dashboard_data(_views_with_followup(rows), full_mode=False)
+        rec = data['sections']['follow_up'][0]
+        assert rec['staleness'] == 'stale'
+        assert rec['days_since'] == 20
+        assert 'finding a contact' in rec['suggested_action'].lower()
 
-    def test_shows_days_since_applied(self):
-        old_date = (date.today() - timedelta(days=20)).isoformat()
-        rows = [{
-            'company': 'Acme', 'llm_score': '90', 'open_positions': 'PM',
-            'date_added': old_date, 'date_applied': old_date,
-            'last_contact': '', 'contact_name': '',
-            'app_status': 'applied', 'role_family': 'AI',
-            'careers_url': '', 'role_url': '',
-        }]
-        html_out = build_followup_cards(rows)
-        assert '20 days' in html_out
-
-    def test_empty_rows_shows_placeholder(self):
-        html_out = build_followup_cards([])
+    def test_empty_rows_yields_empty_section(self):
+        data = build_dashboard_data(_views_with_followup([]), full_mode=False)
+        assert data['sections']['follow_up'] == []
+        # The friendly empty-state string is baked into the always-inlined
+        # client script and shown whenever this list is empty at render time.
+        html_out = build_html([], full_mode=False)
         assert 'No applications to follow up on' in html_out
 
-    def test_contact_name_shown(self):
+    def test_contact_name_present(self):
         recent_date = (date.today() - timedelta(days=3)).isoformat()
         rows = [{
             'company': 'Acme', 'llm_score': '90', 'open_positions': 'PM',
@@ -271,10 +293,13 @@ class TestBuildFollowupCards:
             'app_status': 'applied', 'role_family': 'AI',
             'careers_url': '', 'role_url': '',
         }]
-        html_out = build_followup_cards(rows)
-        assert 'Jane Doe' in html_out
+        data = build_dashboard_data(_views_with_followup(rows), full_mode=False)
+        assert data['sections']['follow_up'][0]['contact_name'] == 'Jane Doe'
 
-    def test_sorted_by_staleness_oldest_first(self):
+    def test_days_since_ordering_enables_oldest_first_sort(self):
+        """The client sorts follow-up cards by days_since descending (oldest
+        first); verify the underlying field is correct for both rows so that
+        sort produces the same order the old server-side sort did."""
         old = (date.today() - timedelta(days=30)).isoformat()
         recent = (date.today() - timedelta(days=5)).isoformat()
         rows = [
@@ -287,10 +312,9 @@ class TestBuildFollowupCards:
              'last_contact': '', 'contact_name': '',
              'app_status': 'applied', 'role_family': '', 'careers_url': '', 'role_url': ''},
         ]
-        html_out = build_followup_cards(rows)
-        old_pos = html_out.index('Old')
-        recent_pos = html_out.index('Recent')
-        assert old_pos < recent_pos
+        data = build_dashboard_data(_views_with_followup(rows), full_mode=False)
+        by_company = {r['company']: r for r in data['sections']['follow_up']}
+        assert by_company['Old']['days_since'] > by_company['Recent']['days_since']
 
     def test_date_applied_empty_falls_back_to_date_added(self):
         old_date = (date.today() - timedelta(days=10)).isoformat()
@@ -301,11 +325,25 @@ class TestBuildFollowupCards:
             'app_status': 'applied', 'role_family': 'AI',
             'careers_url': '', 'role_url': '',
         }]
-        html_out = build_followup_cards(rows)
-        assert '10 days' in html_out
+        data = build_dashboard_data(_views_with_followup(rows), full_mode=False)
+        assert data['sections']['follow_up'][0]['days_since'] == 10
 
 
-class TestBuildBestFits:
+def _views_with_bestfits(rows):
+    return {
+        'follow_up': [], 'best_fits': rows, 'worth_exploring': [], 'closed_out': [],
+        'stats': {'follow_up': 0, 'best_fits': len(rows), 'worth_exploring': 0,
+                   'closed_out': 0, 'total': len(rows)},
+    }
+
+
+class TestBestFitsData:
+    """build_dashboard_data()'s best_fits records replace the old
+    build_bestfits_section() HTML string builder. Grouping/expand-collapse
+    decisions now happen client-side in JS from this data, so these tests
+    assert the data is complete and correctly tagged rather than parsing
+    generated markup."""
+
     def _make_row(self, company, score, path, roles='PM'):
         return {
             'company': company, 'llm_score': str(score),
@@ -320,75 +358,59 @@ class TestBuildBestFits:
             self._make_row('B', 85, 'Finance'),
             self._make_row('C', 80, 'AI'),
         ]
-        html_out = build_bestfits_section(rows, limit_per_path=3)
-        assert 'AI' in html_out
-        assert 'Finance' in html_out
+        data = build_dashboard_data(_views_with_bestfits(rows), full_mode=False)
+        paths = {r['path'] for r in data['sections']['best_fits']}
+        assert paths == {'AI', 'Finance'}
 
-    def test_all_companies_rendered_in_group(self):
+    def test_all_companies_rendered_in_group_no_truncation(self):
+        # Unlike the old server-rendered version (which truncated to
+        # limit_per_path), the new client-rendered data always carries every
+        # row — the client decides how many to show and lets you expand.
         rows = [
             self._make_row('A', 90, 'AI'),
             self._make_row('B', 85, 'AI'),
             self._make_row('C', 80, 'AI'),
             self._make_row('D', 75, 'AI'),
         ]
-        html_out = build_bestfits_section(rows, limit_per_path=3)
-        # All companies rendered (inside path group)
-        assert 'A' in html_out
-        assert 'B' in html_out
-        assert 'C' in html_out
-        assert 'D' in html_out
+        data = build_dashboard_data(_views_with_bestfits(rows), full_mode=False)
+        companies = {r['company'] for r in data['sections']['best_fits']}
+        assert companies == {'A', 'B', 'C', 'D'}
 
-    def test_auto_expand_when_small(self):
+    def test_full_mode_flag_recorded_in_meta(self):
         rows = [self._make_row('A', 90, 'AI')]
-        html_out = build_bestfits_section(rows, limit_per_path=3)
-        # Small count auto-expands: display:block and "Collapse All"
-        assert 'display:block' in html_out
-        assert 'Collapse All' in html_out
-
-    def test_collapsed_when_large(self):
-        rows = [self._make_row(f'Co{i}', 90 - i, 'AI') for i in range(60)]
-        html_out = build_bestfits_section(rows, limit_per_path=0)
-        # Large count stays collapsed: display:none and "Expand All"
-        assert 'display:none' in html_out
-        assert 'Expand All' in html_out
-
-    def test_toggle_all_button_present(self):
-        rows = [self._make_row('A', 90, 'AI')]
-        html_out = build_bestfits_section(rows, limit_per_path=3)
-        assert 'toggleAllBtn' in html_out
-
-    def test_paths_ordered_by_highest_score(self):
-        rows = [
-            self._make_row('Low', 60, 'Finance'),
-            self._make_row('High', 95, 'AI'),
-        ]
-        html_out = build_bestfits_section(rows, limit_per_path=3)
-        ai_pos = html_out.index('AI')
-        fin_pos = html_out.index('Finance')
-        assert ai_pos < fin_pos
+        data = build_dashboard_data(_views_with_bestfits(rows), full_mode=True)
+        assert data['meta']['full_mode'] is True
+        assert data['meta']['title'] == 'Career Dashboard (Full)'
+        data = build_dashboard_data(_views_with_bestfits(rows), full_mode=False)
+        assert data['meta']['full_mode'] is False
+        assert data['meta']['title'] == 'Career Dashboard'
 
     def test_empty_path_goes_to_other(self):
         rows = [self._make_row('X', 80, '')]
-        html_out = build_bestfits_section(rows, limit_per_path=3)
-        assert 'Other' in html_out
+        data = build_dashboard_data(_views_with_bestfits(rows), full_mode=False)
+        assert data['sections']['best_fits'][0]['path'] == 'Other'
 
-    def test_rationale_truncated_at_200(self):
+    def test_rationale_kept_full_for_client_side_truncation(self):
+        # Truncation for compact display is now a client-side concern; the
+        # JSON payload must carry the full text so detail cards can show it.
         long_rationale = 'A' * 300
         rows = [{
             'company': 'X', 'llm_score': '80', 'role_family': 'AI',
             'llm_rationale': long_rationale, 'open_positions': 'PM',
             'careers_url': '', 'role_url': '', 'app_status': '',
         }]
-        html_out = build_bestfits_section(rows, limit_per_path=3)
-        assert long_rationale not in html_out
-        assert '...' in html_out
+        data = build_dashboard_data(_views_with_bestfits(rows), full_mode=False)
+        assert data['sections']['best_fits'][0]['rationale'] == long_rationale
 
     def test_empty_rows(self):
-        html_out = build_bestfits_section([], limit_per_path=3)
-        assert html_out.strip()
+        data = build_dashboard_data(_views_with_bestfits([]), full_mode=False)
+        assert data['sections']['best_fits'] == []
 
 
-class TestBuildPipelineTable:
+class TestPipelineData:
+    """build_dashboard_data()'s pipeline records replace the old
+    build_pipeline_table() HTML string builder."""
+
     def _make_row(self, company, score, path, status='', date_added='', date_applied=''):
         return {
             'company': company, 'llm_score': str(score), 'role_family': path,
@@ -397,46 +419,60 @@ class TestBuildPipelineTable:
             'careers_url': '', 'role_url': '',
         }
 
+    def _views(self, rows):
+        return {
+            'follow_up': [], 'best_fits': rows, 'worth_exploring': [], 'closed_out': [],
+            'stats': {'follow_up': 0, 'best_fits': len(rows), 'worth_exploring': 0,
+                       'closed_out': 0, 'total': len(rows)},
+        }
+
     def test_renders_all_companies(self):
         rows = [
             self._make_row('A', 90, 'AI', 'applied', '2026-03-01'),
             self._make_row('B', 80, 'Finance'),
         ]
-        html_out = build_pipeline_table(rows)
-        assert 'A' in html_out
-        assert 'B' in html_out
+        data = build_dashboard_data(self._views(rows), full_mode=False)
+        companies = {r['company'] for r in data['sections']['pipeline']}
+        assert companies == {'A', 'B'}
 
     def test_status_badge_applied(self):
         rows = [self._make_row('A', 90, 'AI', 'applied', '2026-03-01')]
-        html_out = build_pipeline_table(rows)
-        assert 'status-applied' in html_out
-        assert 'Applied' in html_out
+        data = build_dashboard_data(self._views(rows), full_mode=False)
+        rec = data['sections']['pipeline'][0]
+        assert rec['status_class'] == 'status-applied'
+        assert rec['status_label'] == 'Applied'
 
     def test_status_badge_not_applied(self):
         rows = [self._make_row('A', 90, 'AI')]
-        html_out = build_pipeline_table(rows)
-        assert 'status-not' in html_out
+        data = build_dashboard_data(self._views(rows), full_mode=False)
+        assert data['sections']['pipeline'][0]['status_class'] == 'status-not'
 
     def test_status_badge_rejected(self):
         rows = [self._make_row('A', 90, 'AI', 'rejected', '2026-01-01')]
-        html_out = build_pipeline_table(rows)
-        assert 'Rejected' in html_out
+        data = build_dashboard_data(self._views(rows), full_mode=False)
+        rec = data['sections']['pipeline'][0]
+        assert rec['status_label'] == 'Rejected'
+        assert rec['status_class'] == 'status-rejected'
 
-    def test_has_filter_controls(self):
-        rows = [self._make_row('A', 90, 'AI')]
-        html_out = build_pipeline_table(rows)
-        assert 'search' in html_out.lower() or 'Search' in html_out
-        assert 'select' in html_out.lower()
+    def test_paths_list_for_filter_dropdown(self):
+        rows = [
+            self._make_row('A', 90, 'AI'),
+            self._make_row('B', 80, 'Finance'),
+        ]
+        data = build_dashboard_data(self._views(rows), full_mode=False)
+        assert set(data['paths']) == {'AI', 'Finance'}
 
-    def test_roles_consolidated(self):
+    def test_roles_full_list_and_count_preserved(self):
         rows = [self._make_row('A', 90, 'AI')]
         rows[0]['open_positions'] = 'PM; Eng; FDE'
-        html_out = build_pipeline_table(rows)
-        assert '+1' in html_out
+        data = build_dashboard_data(self._views(rows), full_mode=False)
+        rec = data['sections']['pipeline'][0]
+        assert rec['roles'] == ['PM', 'Eng', 'FDE']
+        assert rec['role_count'] == 3
 
 
 class TestBuildFullDashboard:
-    def test_contains_all_three_sections(self, tmp_path):
+    def test_contains_all_sections_and_no_external_requests(self, tmp_path):
         targets_path = tmp_path / 'targets.csv'
         apps_path = tmp_path / 'apps.csv'
 
@@ -463,8 +499,21 @@ class TestBuildFullDashboard:
         assert 'Applied' in html_out
         assert 'Best Fits' in html_out
         assert 'Full Pipeline' in html_out
+        # Company data now lives in the embedded JSON, not literal HTML markup.
         assert 'Applied Co' in html_out
         assert 'Fresh Co' in html_out
+
+        data = _extract_embedded_data(html_out)
+        companies = {r['company'] for r in data['sections']['pipeline']}
+        assert companies == {'Applied Co', 'Fresh Co'}
+
+        # Fully self-contained: no <script src=...> / <link href=...> pointed
+        # at an external http(s) resource (a bare "http://" can still appear,
+        # e.g. the SVG namespace URI used when building charts).
+        assert 'script src="http' not in html_out
+        assert 'link href="http' not in html_out
+        assert 'fonts.googleapis.com' not in html_out
+        assert '<script type="application/json" id="dashboard-data">' in html_out
 
     def test_stats_ribbon_counts(self, tmp_path):
         targets_path = tmp_path / 'targets.csv'
@@ -489,11 +538,12 @@ class TestBuildFullDashboard:
         merged = merge_data(targets, apps)
 
         html_out = build_html(merged, full_mode=False)
+        data = _extract_embedded_data(html_out)
 
-        assert '>1<' in html_out  # Applied count
-        assert '>3<' in html_out  # Total count
+        assert data['stats']['follow_up'] == 1
+        assert data['stats']['total'] == 3
 
-    def test_full_mode_shows_all_in_bestfits(self, tmp_path):
+    def test_full_mode_includes_all_companies(self, tmp_path):
         targets_path = tmp_path / 'targets.csv'
         _write_csv(targets_path,
             ['company', 'llm_score', 'numeric_score', 'role_family',
@@ -506,7 +556,21 @@ class TestBuildFullDashboard:
         merged = merge_data(targets, [])
 
         html_out = build_html(merged, full_mode=True)
-        assert 'class="show-more"' not in html_out
+        data = _extract_embedded_data(html_out)
+        assert data['meta']['full_mode'] is True
+        companies = {r['company'] for r in data['sections']['best_fits']}
+        assert companies == {f'Co{i}' for i in range(5)}
+
+    def test_empty_data_renders_clean_with_no_traceback(self):
+        """A fresh checkout with no CSVs at all must still produce a valid,
+        self-contained page (no exception, no blank page)."""
+        html_out = build_html([], full_mode=False)
+        assert '<!DOCTYPE html>' in html_out
+        assert 'No applications to follow up on' in html_out
+        data = _extract_embedded_data(html_out)
+        assert data['sections']['follow_up'] == []
+        assert data['sections']['best_fits'] == []
+        assert data['stats']['total'] == 0
 
 
 class TestDisplayGroups:
@@ -518,6 +582,13 @@ class TestDisplayGroups:
             'app_status': '',
         }
 
+    def _views(self, rows):
+        return {
+            'follow_up': [], 'best_fits': rows, 'worth_exploring': [], 'closed_out': [],
+            'stats': {'follow_up': 0, 'best_fits': len(rows), 'worth_exploring': 0,
+                       'closed_out': 0, 'total': len(rows)},
+        }
+
     def test_groups_paths_into_display_groups(self):
         rows = [
             self._make_row('A', 90, 'Path Alpha'),
@@ -525,9 +596,11 @@ class TestDisplayGroups:
             self._make_row('C', 80, 'Path Gamma'),
         ]
         display_groups = {'AI & Tech': ['Path Alpha', 'Path Gamma'], 'Finance': ['Path Beta']}
-        html_out = build_bestfits_section(rows, display_groups=display_groups)
-        assert 'AI &amp; Tech' in html_out
-        assert 'Finance' in html_out
+        data = build_dashboard_data(self._views(rows), full_mode=False, display_groups=display_groups)
+        groups = {r['company']: r['group'] for r in data['sections']['best_fits']}
+        assert groups['A'] == 'AI & Tech'
+        assert groups['C'] == 'AI & Tech'
+        assert groups['B'] == 'Finance'
 
     def test_unmapped_path_goes_to_other(self):
         rows = [
@@ -535,17 +608,19 @@ class TestDisplayGroups:
             self._make_row('B', 85, 'Unmapped Path'),
         ]
         display_groups = {'AI & Tech': ['Path Alpha']}
-        html_out = build_bestfits_section(rows, display_groups=display_groups)
-        assert 'Other' in html_out
+        data = build_dashboard_data(self._views(rows), full_mode=False, display_groups=display_groups)
+        groups = {r['company']: r['group'] for r in data['sections']['best_fits']}
+        assert groups['B'] == 'Other'
 
     def test_no_display_groups_falls_back_to_path(self):
         rows = [
             self._make_row('A', 90, 'Path Alpha'),
             self._make_row('B', 85, 'Path Beta'),
         ]
-        html_out = build_bestfits_section(rows, display_groups=None)
-        assert 'Path Alpha' in html_out
-        assert 'Path Beta' in html_out
+        data = build_dashboard_data(self._views(rows), full_mode=False, display_groups=None)
+        groups = {r['company']: r['group'] for r in data['sections']['best_fits']}
+        assert groups['A'] == 'Path Alpha'
+        assert groups['B'] == 'Path Beta'
 
 
 class TestWatchListSection:
