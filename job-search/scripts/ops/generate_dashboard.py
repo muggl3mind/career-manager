@@ -502,12 +502,27 @@ def _load_display_groups(search_config_path: Path | None = None) -> dict | None:
         return None
 
 
+def _strip_external_css(css: str) -> str:
+    """Drop @import rules and any line referencing an http(s) URL from inlined CSS.
+
+    Brand theme.css may carry web-font imports or commented-out <link> tags;
+    the dashboard must stay fully offline, so none of that may reach the page.
+    """
+    kept = []
+    for line in css.splitlines():
+        lowered = line.lower()
+        if '@import' in lowered or 'http://' in lowered or 'https://' in lowered:
+            continue
+        kept.append(line)
+    return '\n'.join(kept)
+
+
 def render_dashboard_html(data: dict) -> str:
     """Render the full self-contained HTML page around a build_dashboard_data() blob."""
     title = data['meta']['title']
     run_date = data['meta']['run_date']
 
-    brand_css = read_brand_css()
+    brand_css = _strip_external_css(read_brand_css())
     css = _get_css()
     js = _get_js()
     data_json = json.dumps(data, ensure_ascii=False)
