@@ -453,6 +453,11 @@ def build_dashboard_data(
     all_visible = aggregate_display_rows(followup_rows + bestfit_rows + worth_exploring_rows)
     pipeline_records = [_row_record(r, 'pipeline') for r in all_visible]
 
+    resolve_path = _canonical_path_resolver()
+    for rec in (follow_up_records + closed_out_records + best_fit_records
+                + worth_exploring_records + watch_list_records + pipeline_records):
+        rec['path_canon'] = resolve_path(rec.get('path', ''))
+
     paths = sorted({
         (r.get('role_family', '') or '').strip()
         for r in all_visible
@@ -500,6 +505,48 @@ def _load_display_groups(search_config_path: Path | None = None) -> dict | None:
         return search_config.get('display_groups') or None
     except (json.JSONDecodeError, OSError):
         return None
+
+
+def _canonical_path_resolver(search_config_path: Path | None = None):
+    """Build a raw role_family -> canonical path label resolver.
+
+    Legacy rows carry free-text role families ("Enterprise Finance Software
+    (Solutions Architect)", bare path keys like "tier1_ai"); collapse them to
+    canonical query-pack labels where recognizable so the per-path chart and
+    filter stay readable. Unrecognized values resolve to '' (the client
+    buckets those into 'Other').
+    """
+    path = search_config_path or (DATA / 'search-config.json')
+    try:
+        sys.path.insert(0, str(BASE / 'scripts' / 'core'))
+        from path_normalizer import normalize_path
+        with path.open(encoding='utf-8') as f:
+            search_config = json.load(f)
+    except (ImportError, json.JSONDecodeError, OSError):
+        return lambda raw: ''
+    key_to_label = {k: (v.get('label') or '')
+                    for k, v in (search_config.get('query_packs') or {}).items()}
+    canon = [label for label in key_to_label.values() if label]
+
+    def resolve(raw: str) -> str:
+        raw = (raw or '').strip()
+        if not raw:
+            return ''
+        n = normalize_path(raw)
+        if n in canon:
+            return n
+        if key_to_label.get(raw):
+            return key_to_label[raw]
+        base = normalize_path(raw.split('(')[0].strip())
+        if base in canon:
+            return base
+        low = raw.lower()
+        for c in canon:
+            if low.startswith(c.lower()):
+                return c
+        return ''
+
+    return resolve
 
 
 def _strip_external_css(css: str) -> str:
@@ -1235,6 +1282,28 @@ def _get_js() -> str:
     return [rec.company, rec.roles.join(' '), rec.notes, rec.rationale].join(' ').toLowerCase();
   }
 
+  // Raw role_family values accumulate free-text variants over time; bucket
+  // everything outside the top paths (by pipeline count) into 'Other' so the
+  // chart and path filter stay readable.
+  var PATH_BUCKET_LIMIT = 8;
+  var pathBucketTop = null;
+  function pathBuckets() {
+    if (pathBucketTop) return pathBucketTop;
+    var counts = {};
+    DATA.sections.pipeline.forEach(function(rec) {
+      var p = rec.path_canon || rec.path || 'Other';
+      counts[p] = (counts[p] || 0) + 1;
+    });
+    pathBucketTop = Object.keys(counts).sort(function(a, b) {
+      return counts[b] - counts[a];
+    }).slice(0, PATH_BUCKET_LIMIT);
+    return pathBucketTop;
+  }
+  function bucketOf(rec) {
+    var p = rec.path_canon || rec.path || 'Other';
+    return pathBuckets().indexOf(p) !== -1 ? p : 'Other';
+  }
+
   function applyPipelineFilters() {
     var search = (document.getElementById('pipelineSearch').value || '').toLowerCase();
     var pathVal = document.getElementById('pathFilter').value;
@@ -1243,7 +1312,7 @@ def _get_js() -> str:
 
     var rows = DATA.sections.pipeline.filter(function(rec) {
       var matchSearch = !search || pipelineSearchText(rec).indexOf(search) !== -1;
-      var matchPath = !pathVal || rec.path === pathVal;
+      var matchPath = !pathVal || bucketOf(rec) === pathVal;
       var matchScore = !scoreVal || rec.score_tier === scoreVal;
       var matchStatus = true;
       if (statusVal === 'not_applied') {
@@ -1316,7 +1385,12 @@ def _get_js() -> str:
 
   function renderPipeline() {
     var pathFilter = document.getElementById('pathFilter');
-    DATA.paths.forEach(function(p) {
+    var bucketNames = pathBuckets().slice();
+    var hasOther = DATA.sections.pipeline.some(function(rec) {
+      return bucketOf(rec) === 'Other';
+    });
+    if (hasOther && bucketNames.indexOf('Other') === -1) bucketNames.push('Other');
+    bucketNames.forEach(function(p) {
       var opt = el('option', null, p);
       opt.value = p;
       pathFilter.appendChild(opt);
@@ -1409,7 +1483,7 @@ def _get_js() -> str:
   function buildPathChart() {
     var counts = {};
     DATA.sections.pipeline.forEach(function(rec) {
-      var p = rec.path || 'Other';
+      var p = bucketOf(rec);
       counts[p] = (counts[p] || 0) + 1;
     });
     var entries = Object.keys(counts).map(function(k) { return [k, counts[k]]; })
