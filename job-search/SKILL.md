@@ -66,7 +66,7 @@ This generates expansion context files from pass 1 results.
 ### Monitor Agent
 
 1. Read `data/monitor-context.json`
-2. WebFetch each company's careers page (use `careers_url` if provided, otherwise WebSearch)
+2. Check each company's careers page (use `careers_url` if provided, otherwise WebSearch). **ATS-API first** for Ashby/Lever/Greenhouse boards (JSON API, never the HTML page). Before reporting `no_change` or downgrading to `watch_list`, confirm with one role-title web search — a partial or empty board fetch is not evidence of absence
 3. Score using the yes/no/unknown ratio method from `references/criteria.md` (see Scoring above)
 4. If Tavily configured (`tavily_enabled: true` in config.yaml), use Tavily Map on `careers_url` to capture direct `role_url` links
 5. Report progress every 5 companies (e.g., "8/18 done, 2 new roles found")
@@ -81,10 +81,10 @@ This generates expansion context files from pass 1 results.
 2. Score from the inline `description`, `title`, `company`, and `location` fields — do **NOT** WebFetch job URLs
 3. **Exception:** WebFetch only if `is_agency: true` (to find real employer) or `description` is empty/missing
 4. **Agency handling:** Visit job URL, find actual hiring company, set `actual_company`. If not found, set `actual_company: null` and add `agency_unresolved` to `red_flags`
-5. **Checkpoint:** Every 30 jobs, overwrite `data/eval-results.json` with the full array of all results processed so far (not append — always a valid JSON array)
-6. **Resume:** On restart, read existing `eval-results.json` and skip jobs whose `careers_url` is already present
-7. Report progress at each checkpoint (e.g., "30/114 evaluated, 8 hard-passed so far")
-8. Write `data/eval-results.json`
+5. **Output file:** Write to `data/eval-results-shard-N.json` matching your input shard's N (e.g., `pending-eval-shard-2.json` → `eval-results-shard-2.json`). If you were handed the legacy single file `pending-eval.json`, write to `data/eval-results.json`. Never write to another shard's file — parallel eval agents each own their own file so there is no race.
+6. **Checkpoint:** Every 30 jobs, overwrite your output file with the full array of results processed so far (not append — always a valid JSON array).
+7. **Resume:** On restart, read your own output file and skip jobs whose `careers_url` is already present.
+8. Report progress at each checkpoint (e.g., "30/40 evaluated, 8 hard-passed so far")
 
 **Output fields** (nested — consumed by `apply_eval_results.py`):
 `careers_url`, `actual_company`, `path`, `path_name`, `scores` (object: `background_asset`, `ai_central`, `can_influence`, `non_traditional_welcome`, `comp_200k_path`, `growth_path`, `funding_supports_comp`, `problems_exciting`, `culture_public_voice`, `global_leverage`; each `1` if it fits, `0` if it does not; omit dimensions you cannot assess, never score unknowns as 0), `total_score` (0-100: yes count / evaluated count * 100, rounded down; if fewer than 5 dimensions are assessable set `total_score: 0` and add `needs_research` to `red_flags`, which the merge stores as "not scored"), `fit_summary`, `hard_pass` (bool), `hard_pass_reason`, `red_flags` (array of strings)
@@ -100,8 +100,8 @@ For each path context file:
 3. **MANDATORY:** Execute EVERY query in the context file's `suggested_queries` list before concluding. For each query, run the search, review results, evaluate candidates. Then use remaining budget for follow-ups:
    a. **Competitor expansion** — for the most promising finds, search for competitors and alternatives
    b. **Funding sweep** — search for recently funded companies in the space
-   c. **Careers check** — check each company's careers page, classify as `active_role` or `watch_list`. If `watch_list`, you MUST provide `watch_reason` (one of: no_careers_page, no_matching_roles, roles_wrong_location, company_too_early, domain_mismatch, unable_to_verify) and `watch_evidence` (specific evidence supporting the reason). Vague reasons like "ambiguous" are not accepted.
-4. Budget: up to the query cap in the context file. You MUST use at least the number of suggested queries from your budget. NO minimum-companies requirement — return ONLY companies scoring at or above `discover_min_score`. If nothing meets threshold after all queries, return an empty results array.
+   c. **Careers check** — check each company's careers page, classify as `active_role` or `watch_list`. **ATS-API first:** for Ashby/Lever/Greenhouse boards fetch the JSON API (`api.ashbyhq.com/posting-api/job-board/{org}`, `api.lever.co/v0/postings/{org}?mode=json`, `boards-api.greenhouse.io/v1/boards/{org}/jobs`), never the HTML page — JS-rendered boards return partial or empty listings and produce false negatives. A **negative verdict** (`no_matching_roles`, `no_careers_page`, `unable_to_verify`) requires TWO independent negative sources: the board check AND one role-title web search (e.g. "[company] forward deployed OR implementation OR solutions job"). If `watch_list`, you MUST provide `watch_reason` (one of: no_careers_page, no_matching_roles, roles_wrong_location, company_too_early, domain_mismatch, unable_to_verify) and `watch_evidence` (specific evidence supporting the reason). Vague reasons like "ambiguous" are not accepted.
+4. Budget: up to the query cap in the context file. You MUST use at least the number of suggested queries from your budget. NO minimum-companies requirement. Report companies scoring at or above `discover_min_score` as normal results. Companies scoring 60 to `discover_min_score - 1` are **near-misses**: return them as `watch_list` with `below_threshold` added to `llm_flags` — the scoring guide's 60-69 LOW band and the dashboard's Worth Exploring section exist for exactly these rows, and a silently discarded near-miss can never be re-checked. Path-relevant companies with fewer than 5 verifiable dimensions are returned as `watch_list` with `watch_reason: unable_to_verify` and `llm_flags: needs_research`, score omitted. Do not return companies scoring below 60. If nothing qualifies after all queries, return an empty results array.
 5. Score using the 10-dimension rubric from criteria.md
 6. Write results to `data/prospecting-results-{path_key}.json` using the wrapper format:
 
@@ -120,7 +120,7 @@ For each path context file:
 }
 ```
 
-**Output fields** (in each result): `company`, `website`, `careers_url`, `role_url`, `industry`, `size`, `stage`, `recent_funding`, `tech_signals`, `open_positions`, `prospect_status` (`active_role|watch_list`), `fit_rationale`, `path`, `path_name`, `notes`, `llm_score` (0-100), `llm_dimensions_evaluated` (0-10), `llm_rationale`, `role_family`, `llm_flags` (comma-separated; canonical separator is defined in `scripts/core/flags.py`), `queries_used` (array), `watch_reason` (required if watch_list: `no_careers_page|no_matching_roles|roles_wrong_location|company_too_early|domain_mismatch|unable_to_verify`), `watch_evidence` (required if watch_list: specific evidence string)
+**Output fields** (in each result): `company`, `website`, `careers_url`, `role_url`, `industry`, `size`, `stage`, `recent_funding`, `tech_signals`, `open_positions`, `prospect_status` (`active_role|watch_list`), `fit_rationale`, `path` (path_key from the context file, e.g. `ai_finance_accounting_tech`), `path_name` (path_label from the context file, e.g. `AI in Finance / Accounting Tech` — copy verbatim, do NOT paraphrase), `notes`, `llm_score` (0-100), `llm_dimensions_evaluated` (0-10), `llm_rationale`, `role_family` (**MUST equal `path_name` verbatim**; do not put role titles like "Solutions Architect" here — those go in `open_positions`), `llm_flags` (comma-separated; canonical separator is defined in `scripts/core/flags.py`), `queries_used` (array), `watch_reason` (required if watch_list: `no_careers_page|no_matching_roles|roles_wrong_location|company_too_early|domain_mismatch|unable_to_verify`), `watch_evidence` (required if watch_list: specific evidence string)
 
 ### Expansion Prospecting Agents (per-path, Wave 2)
 
@@ -134,10 +134,10 @@ For each expansion context file:
    a. **Competitor mining** — for each seed company, search competitors and alternatives
    b. **Investor portfolio mining** — for funded seed companies, search investor portfolios
    c. **Community/list mining** — search for curated startup lists, batches, awesome-lists
-4. Budget: up to the query cap in the context file. NO minimum-companies requirement — return ONLY NEW (not in skip list) companies scoring at or above `discover_min_score`. If nothing qualifies, return an empty results array.
+4. Budget: up to the query cap in the context file. NO minimum-companies requirement. Return only NEW (not in skip list) companies. Same reporting bands as pass 1: >= `discover_min_score` as normal results, 60 to `discover_min_score - 1` as `watch_list` with `below_threshold` flag, fewer than 5 verifiable dimensions as `watch_list` with `needs_research` (score omitted), below 60 not returned. If nothing qualifies, return an empty results array.
 5. Score using the 10-dimension rubric from criteria.md
 6. Write results to `data/prospecting-results-{path_key}-expansion.json` using the same wrapper format as pass 1
-7. If setting `prospect_status: watch_list`, provide `watch_reason` and `watch_evidence` (same rules as pass 1)
+7. If setting `prospect_status: watch_list`, provide `watch_reason` and `watch_evidence` (same rules as pass 1). Careers checks follow the same ATS-API-first and two-source negative-verdict rules as pass 1
 
 ## Phase 2 — Preview and merge (automatic)
 
