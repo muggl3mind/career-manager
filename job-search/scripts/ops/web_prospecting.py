@@ -385,14 +385,28 @@ def cmd_export_perpath(
                 'After completing all suggested queries, use any remaining budget for follow-up searches\n'
                 '(competitor expansion, funding sweeps, careers page checks).\n\n'
                 'For each candidate company found:\n'
-                '1. Check their careers page for relevant open roles.\n'
+                '1. Check their careers page for relevant open roles. ATS-API FIRST: if the\n'
+                '   board is Ashby/Lever/Greenhouse, fetch the JSON API, not the HTML page\n'
+                '   (api.ashbyhq.com/posting-api/job-board/{org}, api.lever.co/v0/postings/{org}?mode=json,\n'
+                '   boards-api.greenhouse.io/v1/boards/{org}/jobs). HTML fetches of JS-rendered\n'
+                '   boards return partial or empty listings and produce false negatives.\n'
                 '2. Score against the rubric.\n'
-                '3. Classify as active_role or watch_list.\n\n'
+                '3. Classify as active_role or watch_list. A NEGATIVE verdict (watch_list for\n'
+                '   no_matching_roles / no_careers_page / unable_to_verify) requires TWO independent\n'
+                '   negative sources: the careers board AND one role-title web search\n'
+                '   ("[company] forward deployed OR implementation OR solutions job"). One failed\n'
+                '   fetch is not evidence of absence.\n\n'
                 'Budget and quality rules:\n'
                 f'- Maximum {_PER_AGENT_QUERY_BUDGET} web searches total.\n'
                 f'- You MUST use at least {min(_PER_AGENT_QUERY_BUDGET, len(_suggested_queries(path_label)))} of your budget on the suggested queries.\n'
-                f'- Return ONLY companies that score >= {_DISCOVER_MIN_SCORE} on the rubric. There is NO minimum count.\n'
-                '- If nothing meets the threshold after all suggested queries, return an empty results array.\n'
+                f'- Report companies scoring >= {_DISCOVER_MIN_SCORE} as normal results. There is NO minimum count.\n'
+                f'- Companies scoring 60-{_DISCOVER_MIN_SCORE - 1} are near-misses: return them as prospect_status\n'
+                '  watch_list with "below_threshold" added to llm_flags so the monitor re-checks them\n'
+                '  later instead of losing them forever. Do not return companies below 60.\n'
+                '- Path-relevant companies where fewer than 5 rubric dimensions are verifiable are\n'
+                '  NOT discarded: return them as watch_list with watch_reason unable_to_verify and\n'
+                '  llm_flags "needs_research" (omit llm_score).\n'
+                '- If nothing qualifies after all suggested queries, return an empty results array.\n'
                 '- Skip companies in known_companies_skip.\n'
                 '- Re-check companies in known_companies_recheck if present.\n'
                 '- known_companies are already tracked — focus searches on companies not in that list.\n'
@@ -490,7 +504,14 @@ def _do_merge(results: List[Dict], data_dir: Path, dry_run: bool = False) -> int
 
         match = find_existing(company, existing_rows)
         if match:
-            # Merge new data into existing row
+            # Merge new data into existing row.
+            # Normalize role_family BEFORE it flows into merge_into_existing
+            # so a truthy-but-generic value ("Solutions Architect") never
+            # overwrites an existing canonical path label.
+            _merged_role_family = normalize_path(
+                r.get('path_name', '') or r.get('llm_path_name', '') or r.get('role_family', ''),
+                _CANONICAL_PATHS,
+            )
             merge_data = {
                 'open_positions': (r.get('open_positions') or '').strip(),
                 'llm_score': str(r.get('llm_score', '')) if r.get('llm_score') is not None else '',
@@ -498,7 +519,7 @@ def _do_merge(results: List[Dict], data_dir: Path, dry_run: bool = False) -> int
                 'llm_rationale': r.get('llm_rationale', '') or r.get('fit_rationale', ''),
                 'llm_flags': normalize_flags(r.get('llm_flags', '')),
                 'role_url': r.get('role_url', ''),
-                'role_family': r.get('role_family', '') or r.get('llm_path_name', '') or r.get('path_name', ''),
+                'role_family': _merged_role_family,
                 'website': r.get('website', ''),
                 'careers_url': r.get('careers_url', ''),
                 'last_checked': today,
@@ -544,7 +565,7 @@ def _do_merge(results: List[Dict], data_dir: Path, dry_run: bool = False) -> int
             'open_positions': open_positions,
             'last_checked': today,
             'notes': r.get('notes', '') + f' | source=web_prospecting | status={prospect_status}',
-            'role_family': r.get('role_family', '') or r.get('llm_path_name', '') or r.get('path_name', ''),
+            'role_family': r.get('path_name', '') or r.get('llm_path_name', '') or r.get('role_family', ''),
             'source': 'web_prospecting',
             'location_detected': '',
             'validation_status': validation_status,
@@ -710,8 +731,14 @@ def cmd_merge_multifile(data_dir: Path | None = None, dry_run: bool = False) -> 
             if new_roles and new_roles.lower() not in (old_roles or '').lower():
                 existing['open_positions'] = (old_roles + '; ' + new_roles).strip('; ')
 
-            # Keep higher score entry's fields
-            if new_score > old_score:
+            # Keep higher score entry's fields. On score ties, an
+            # active_role verdict outranks watch_list: one agent verifying
+            # a live role must not lose to another path's watch verdict
+            # just because its file loads earlier alphabetically.
+            old_active = existing.get('prospect_status') == 'active_role'
+            new_active = r.get('prospect_status') == 'active_role'
+            if new_score > old_score or (
+                    new_score == old_score and new_active and not old_active):
                 for field in ('llm_score', 'llm_rationale', 'llm_flags',
                               'role_family', 'path_name', 'website',
                               'careers_url', 'prospect_status',
@@ -720,6 +747,10 @@ def cmd_merge_multifile(data_dir: Path | None = None, dry_run: bool = False) -> 
                               'watch_reason', 'watch_evidence'):
                     if r.get(field):
                         existing[field] = r[field]
+                if new_active:
+                    # stale watch metadata must not survive an active verdict
+                    existing.pop('watch_reason', None)
+                    existing.pop('watch_evidence', None)
         else:
             deduped[key] = dict(r)  # copy to avoid mutation
             deduped[key]['company'] = company  # normalized
@@ -968,10 +999,16 @@ def cmd_export_expansion(
             '"[industry] company directory").\n\n'
             'Budget and quality rules:\n'
             f'- Maximum {_PER_AGENT_QUERY_BUDGET} web searches total.\n'
-            f'- Return ONLY companies that score >= {_DISCOVER_MIN_SCORE} on the rubric. There is NO minimum count.\n'
-            '- If nothing meets the threshold after all queries, return an empty results array.\n'
+            f'- Report companies scoring >= {_DISCOVER_MIN_SCORE} as normal results. There is NO minimum count.\n'
+            f'- Companies scoring 60-{_DISCOVER_MIN_SCORE - 1} are near-misses: return them as prospect_status\n'
+            '  watch_list with "below_threshold" added to llm_flags. Do not return companies below 60.\n'
+            '- Path-relevant companies where fewer than 5 rubric dimensions are verifiable: return as\n'
+            '  watch_list with watch_reason unable_to_verify and llm_flags "needs_research" (omit llm_score).\n'
+            '- If nothing qualifies after all queries, return an empty results array.\n'
             '- Skip companies in known_companies_skip.\n'
-            '- Check careers page for each candidate company.\n'
+            '- Check careers page for each candidate company. ATS-API FIRST for Ashby/Lever/Greenhouse\n'
+            '  boards (JSON API, not HTML). A negative verdict requires two independent negative\n'
+            '  sources: the board AND one role-title web search.\n'
             '- Only report companies with roles available in the locations listed in search_locations\n'
             '  (Remote within those countries counts). Location mismatches are watch_list, never active_role.\n\n'
             + SCORING_INSTRUCTIONS +

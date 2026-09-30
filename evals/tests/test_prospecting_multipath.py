@@ -144,6 +144,48 @@ class TestMultiFileMerge:
         assert len(shared) == 1
         assert int(shared[0]["llm_score"]) == 85
 
+    def test_merge_tie_prefers_active_role(self, tmp_path):
+        """Score tie across files: active_role beats watch_list regardless
+        of alphabetical file order (path_a loads first)."""
+        self._write_target_csv(tmp_path / "target-companies.csv")
+        (tmp_path / "seen-companies.json").write_text("{}")
+
+        entries = [
+            ("path_a", {
+                "prospect_status": "watch_list",
+                "open_positions": "None — watch list",
+                "watch_reason": "no_matching_roles",
+                "watch_evidence": "No fitting roles via this path's lens",
+            }),
+            ("path_b", {
+                "prospect_status": "active_role",
+                "open_positions": "Senior Product Manager",
+                "role_url": "https://shared.com/jobs/senior-pm",
+            }),
+        ]
+        for slug, extra in entries:
+            data = {
+                "_meta": {"path_key": slug},
+                "results": [{
+                    "company": "SharedCo", "website": "shared.com",
+                    "careers_url": "https://shared.com/careers",
+                    "llm_score": 100, "llm_rationale": "Fit",
+                    "role_family": "Path Alpha", "path_name": "Path Alpha",
+                    **extra,
+                }],
+            }
+            (tmp_path / f"prospecting-results-{slug}.json").write_text(json.dumps(data))
+
+        from web_prospecting import cmd_merge_multifile
+        cmd_merge_multifile(data_dir=tmp_path)
+
+        with (tmp_path / "target-companies.csv").open() as f:
+            rows = list(csv.DictReader(f))
+        shared = [r for r in rows if r["company"] == "SharedCo"]
+        assert len(shared) == 1
+        assert shared[0]["validation_status"] == "pass"
+        assert "Senior Product Manager" in shared[0]["open_positions"]
+
     def test_merge_handles_old_format(self, tmp_path):
         """Plain JSON array (no _meta wrapper) still works."""
         self._write_target_csv(tmp_path / "target-companies.csv")

@@ -157,13 +157,48 @@ def _validate_results(results: List[Dict]) -> List[Dict]:
     return valid
 
 
-def cmd_apply(dry_run: bool = False) -> int:
-    if not EVAL_RESULTS.exists():
-        print(f"ERROR: {EVAL_RESULTS} not found. Claude must write eval-results.json first.")
-        return 1
+def _load_eval_results() -> List[Dict]:
+    """Load eval results, preferring per-shard files when present.
 
-    with EVAL_RESULTS.open(encoding='utf-8') as f:
-        results: List[Dict] = json.load(f)
+    Multi-shard runs write eval-results-shard-N.json (one per parallel eval
+    agent) instead of racing on a single eval-results.json. This helper
+    merges shard files in order, falling back to the single-file format
+    when no shards exist. Duplicate careers_urls across shards keep the
+    later-shard verdict (matching within-shard resume semantics).
+
+    Shard files are searched in EVAL_RESULTS.parent so tests that
+    monkeypatch EVAL_RESULTS also relocate shard discovery.
+    """
+    shard_paths = sorted(EVAL_RESULTS.parent.glob('eval-results-shard-*.json'))
+    merged: List[Dict] = []
+    seen_urls: set = set()
+    if shard_paths:
+        for path in shard_paths:
+            with path.open(encoding='utf-8') as f:
+                for row in json.load(f):
+                    url = row.get('careers_url', '')
+                    if url and url in seen_urls:
+                        # Later shards overwrite earlier ones on collision.
+                        merged = [r for r in merged if r.get('careers_url') != url]
+                    merged.append(row)
+                    if url:
+                        seen_urls.add(url)
+        print(f"  [eval_merge] loaded {len(merged)} results from {len(shard_paths)} shard file(s)")
+        return merged
+    if EVAL_RESULTS.exists():
+        with EVAL_RESULTS.open(encoding='utf-8') as f:
+            return json.load(f)
+    return []
+
+
+def cmd_apply(dry_run: bool = False) -> int:
+    results = _load_eval_results()
+    if not results:
+        print(
+            f"ERROR: no eval results found. Expected eval-results-shard-*.json "
+            f"(one per parallel eval agent) or {EVAL_RESULTS.name}."
+        )
+        return 1
 
     # Merge-time validation: quarantine unverifiable or invalid self-reports.
     results = _validate_results(results)
@@ -365,11 +400,16 @@ def cmd_apply(dry_run: bool = False) -> int:
         _write_csv(RAW_CSV, raw_rows, HEADER)
         with SEEN_JOBS.open('w', encoding='utf-8') as f:
             json.dump(seen, f, indent=2, ensure_ascii=False)
-        # Clean up working files
+        # Clean up working files (relative to EVAL_RESULTS.parent so
+        # monkeypatched tests locate their own tmp shards).
         if EVAL_RESULTS.exists():
             EVAL_RESULTS.unlink()
+        for shard_path in EVAL_RESULTS.parent.glob('eval-results-shard-*.json'):
+            shard_path.unlink()
         if PENDING_EVAL.exists():
             PENDING_EVAL.unlink()
+        for shard_path in PENDING_EVAL.parent.glob('pending-eval-shard-*.json'):
+            shard_path.unlink()
         _sync_xlsx()
         print(f"✓ Updated {TARGET_CSV.name} | {RAW_CSV.name} | seen-jobs.json | target-companies.xlsx")
     else:

@@ -278,15 +278,18 @@ def phase2(dry_run: bool = False) -> dict:
         results['monitor_merge'] = 'skipped'
 
     # Step 2: Apply eval results
+    # Parallel eval agents write eval-results-shard-N.json; a single agent
+    # writes eval-results.json. apply_eval_results.py handles both.
     eval_results = DATA / 'eval-results.json'
-    if eval_results.exists():
+    eval_shards = list(DATA.glob('eval-results-shard-*.json'))
+    if eval_results.exists() or eval_shards:
         print("\n[2/3] Apply eval results...")
         rc = run_script('apply_eval_results.py', dr)
         results['eval_merge'] = 'ok' if rc == 0 else 'error'
         if rc != 0:
             results['errors'].append('apply_eval_results.py failed')
     else:
-        print("\n[2/3] Eval merge — SKIPPED (no eval-results.json)")
+        print("\n[2/3] Eval merge — SKIPPED (no eval-results.json or shards)")
         results['eval_merge'] = 'skipped'
 
     # Step 3: Web prospecting merge

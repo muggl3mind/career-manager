@@ -67,6 +67,41 @@ COUNTRY_INDEED_MAP = {
     "Hong Kong": "HKG",
 }
 
+# Baseline recruiter/agency signals every pipeline should catch regardless
+# of user config. Extending this list is the single-place fix for missed
+# staffing agencies (job posts where a recruiting firm reposts a client's
+# role and shows up as the "company"). User-provided agency_patterns are
+# added on top; this baseline is never subtracted.
+_BASELINE_AGENCY_PATTERNS = [
+    r"staffing",
+    r"recruiting",
+    r"recruitment",
+    r"recruiter",
+    r"talent (partners|search|group|solutions|network|associates|acquisition)",
+    r"talent hub",
+    r"executive search",
+    r"search (partners|group|firm)",
+    r"headhunter",
+    r"resourceful talent",
+    r"spectrum search",
+    r"epic placements",
+    r"placements",
+    r"pivotal partners",
+    r"green key",
+    r"nicholson glover",
+    r"selby jennings",
+    r"david joseph",
+    r"lawrence harvey",
+    r"robert half",
+    r"michael page",
+    r"randstad",
+    r"aerotek",
+    r"medilinkers",
+    r"people in ai",
+    r"consultants inc",
+    r"consulting group",
+]
+
 if _SEARCH_CONFIG:
     QUERY_PACKS = {k: v["queries"] for k, v in _SEARCH_CONFIG["query_packs"].items()}
     QUERY_PACK_TO_PATH = {k: v["label"] for k, v in _SEARCH_CONFIG["query_packs"].items()}
@@ -74,7 +109,8 @@ if _SEARCH_CONFIG:
     ROLE_EXCLUDE = _SEARCH_CONFIG["role_exclude_patterns"]
     BA_ALLOWED_CONTEXT = _SEARCH_CONFIG.get("role_rescue_keywords", [])
     EMPLOYER_EXCLUDE = _build_regex(_SEARCH_CONFIG.get("employer_exclude_patterns", []))
-    AGENCY_DETECT = _build_regex(_SEARCH_CONFIG.get("agency_patterns", []))
+    _user_agency = _SEARCH_CONFIG.get("agency_patterns", [])
+    AGENCY_DETECT = _build_regex(_BASELINE_AGENCY_PATTERNS + list(_user_agency))
     NON_US_PAT = _build_regex(_SEARCH_CONFIG.get("location_exclude_patterns", []))
     _kw = _SEARCH_CONFIG.get("keywords", {})
     DOMAIN_KEYWORDS = _kw.get("domain", [])
@@ -89,7 +125,7 @@ else:
     ROLE_EXCLUDE = []
     BA_ALLOWED_CONTEXT = []
     EMPLOYER_EXCLUDE = re.compile(r'(?!)')
-    AGENCY_DETECT = re.compile(r'(?!)')
+    AGENCY_DETECT = _build_regex(_BASELINE_AGENCY_PATTERNS)
     NON_US_PAT = re.compile(r'(?!)')
     DOMAIN_KEYWORDS = []
     AI_KEYWORDS = []
@@ -245,6 +281,7 @@ def discover(limit: int) -> List[Dict]:
                         'location': loc,
                         'results_wanted': limit,
                         'hours_old': 168,
+                        'linkedin_fetch_description': True,
                     }
                     if country_code:
                         kwargs['country_indeed'] = country_code
@@ -368,6 +405,7 @@ def main() -> int:
             'location_detected': d.get('location', ''),
             'validation_status': 'pass' if not reason else 'fail',
             'exclusion_reason': reason or '',
+            'description': desc,
         }
         raw_rows.append(row)
 
@@ -399,6 +437,12 @@ def main() -> int:
             return float(llm) if llm not in (None, '') else 0.0
         except (TypeError, ValueError):
             return 0.0
+
+    # description is transport-only for the eval export; it is not a CSV
+    # column. validated/scored share dict identity with raw_rows, so one
+    # strip covers every row headed for a CSV.
+    for r in raw_rows:
+        r.pop('description', None)
 
     write_csv(RAW_CSV, raw_rows, HEADER)
     if not args.dry_run:

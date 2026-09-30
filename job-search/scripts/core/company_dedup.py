@@ -87,11 +87,19 @@ def merge_into_existing(existing: dict, new_data: dict) -> None:
     Combines roles; the newer evaluation wins over the older one
     (same-run duplicates keep the higher score, see _new_evaluation_wins).
     """
-    # Combine open_positions
+    # Combine open_positions. Watch-list placeholders ("None — watch list")
+    # must not survive alongside real roles.
     old_roles = existing.get('open_positions', '')
     new_roles = new_data.get('open_positions', '')
-    if new_roles and new_roles.lower() not in (old_roles or '').lower():
-        existing['open_positions'] = (old_roles + '; ' + new_roles).strip('; ')
+    if new_roles:
+        parts = [p for p in (old_roles or '').split('; ')
+                 if p and not p.lower().startswith('none')]
+        if not new_roles.lower().startswith('none'):
+            if new_roles.lower() not in '; '.join(parts).lower():
+                parts.append(new_roles)
+        elif not parts:
+            parts = [new_roles]
+        existing['open_positions'] = '; '.join(parts)
 
     if _new_evaluation_wins(existing, new_data):
         for key in EVALUATION_FIELDS:
