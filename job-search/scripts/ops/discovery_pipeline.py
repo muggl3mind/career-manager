@@ -5,6 +5,7 @@ import argparse
 import csv
 import json
 import re
+import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -220,27 +221,58 @@ def location_excluded(location: str, pattern: re.Pattern | None = None) -> bool:
     return bool(pat.search(location or ''))
 
 
+# A job the scraper returned with a full description was loaded moments
+# ago, so its link is known to be live. Checking it again only invites the
+# board to rate-limit us: LinkedIn answers a burst of checks with HTTP 429,
+# which used to discard jobs that had already passed every other gate.
+MIN_SCRAPED_DESC_CHARS = 200
+
+RATE_LIMIT_RETRIES = 2
+RATE_LIMIT_BACKOFF = 5.0
+RATE_LIMIT_MAX_WAIT = 30.0
+
+
+def needs_link_check(d: Dict) -> bool:
+    return len(d.get('desc') or '') < MIN_SCRAPED_DESC_CHARS
+
+
+def _rate_limit_wait(r, attempt: int) -> float:
+    try:
+        wait = float(r.headers.get('Retry-After', ''))
+    except (TypeError, ValueError):
+        wait = RATE_LIMIT_BACKOFF * (attempt + 1)
+    return min(max(wait, 0.0), RATE_LIMIT_MAX_WAIT)
+
+
 def check_url(url: str) -> Tuple[bool, str]:
     if not url:
         return False, 'link_missing'
     h = {'User-Agent': 'Mozilla/5.0'}
-    for _ in range(2):
+    timeouts = 0
+    rate_limited = 0
+    while True:
         try:
             r = requests.get(url, timeout=10, allow_redirects=True, headers=h)
-            code = r.status_code
-            if code in (200, 301, 302, 307, 308, 401, 403):
-                return True, ''
-            return False, f'link_bad_{code}'
         except requests.Timeout:
+            timeouts += 1
+            if timeouts >= 2:
+                return False, 'link_timeout'
             continue
         except Exception:
             return False, 'link_error'
-    return False, 'link_timeout'
+        code = r.status_code
+        if code in (200, 301, 302, 307, 308, 401, 403):
+            return True, ''
+        if code == 429 and rate_limited < RATE_LIMIT_RETRIES:
+            time.sleep(_rate_limit_wait(r, rate_limited))
+            rate_limited += 1
+            continue
+        return False, f'link_bad_{code}'
 
 
 def check_urls(
     urls: List[str],
-    max_workers: int = 12,
+    max_workers: int = 6,
     validator: Callable[[str], Tuple[bool, str]] | None = None,
 ) -> List[Tuple[bool, str]]:
     """Validate URLs concurrently. Results come back in input order; a
@@ -346,6 +378,7 @@ def main() -> int:
     gated: List[Tuple[Dict, str | None]] = []
     url_indices: List[int] = []
     pending_urls: List[str] = []
+    link_checks_skipped = 0
     for d in discovered:
         company, title = d['company'], d['title']
         text = f"{title} {d['desc']} {d.get('location', '')}"
@@ -366,9 +399,16 @@ def main() -> int:
                 reason = 'placeholder_role'
             else:
                 reason = None
-                url_indices.append(len(gated))
-                pending_urls.append(d['url'])
+                if needs_link_check(d):
+                    url_indices.append(len(gated))
+                    pending_urls.append(d['url'])
+                else:
+                    link_checks_skipped += 1
         gated.append((d, reason))
+
+    if link_checks_skipped:
+        print(f"[links] {link_checks_skipped} link checks skipped (scraper already loaded the page); "
+              f"checking {len(pending_urls)}")
 
     for idx, (_, url_reason) in zip(url_indices, check_urls(pending_urls)):
         gated[idx] = (gated[idx][0], url_reason)
