@@ -1,5 +1,7 @@
 # Career Manager Pipeline
 
+[![CI](https://github.com/muggl3mind/career-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/muggl3mind/career-manager/actions/workflows/ci.yml)
+
 An AI-assisted career management system built as a set of Claude Code skills. Orchestrates job discovery, company research, application tracking, and resume tailoring through a pipeline of Python scripts and Claude Code interactions.
 
 > **Note:** This is a personal productivity tool shared for inspiration and adaptation, not a production service.
@@ -77,9 +79,25 @@ Open the project in Claude Code (the desktop app's **Code** tab, or `claude` in 
 | Tailor your resume for a role | *"Tailor my CV for the Product Manager role at Stripe"* |
 | Track an application | *"Add Stripe PM to my tracker"* |
 | Check what needs follow-up | *"Show me applications that need follow-up"* |
+| Prepare for an interview | *"Prep me for the Stripe interview"* |
+| Open your dashboard | *"Open my dashboard"* (or `/dashboard`) |
 | Run a health check | *"Run the pipeline health check"* |
 
 You don't need to memorize commands. Just describe what you need and Claude will route to the right skill.
+
+## Truthful by Construction
+
+A model can invent a credential or a metric. So the CV tailor doesn't trust the model: after it drafts edits, a deterministic gate (`cv-tailor/scripts/claims_gate.py` — plain Python, no LLM) diffs every **number, year, credential acronym** (CPA, PMP, MBA, ...) and **well-known employer name** in the edits and cover letter against your base CV and profile. Any claim that isn't there stops the run before a single file is generated:
+
+```
+ERROR: claims gate failed. The output makes claims not present in the base CV or user profile:
+  - "$500M" (number in bullet_edits[1].new) not found in base CV or profile
+  - "CPA" (credential in bullet_edits[1].new) not found in base CV or profile
+```
+
+**What it doesn't catch:** an invented skill or a rephrased responsibility. So every run also produces a redline `.docx` showing each change against your original. Read it before you send anything.
+
+Pipeline output has its own checks: a pytest suite plus three eval levels (code review, runtime verification, health monitoring) — see `evals/SKILL.md`.
 
 ## Skills Overview
 
@@ -88,7 +106,8 @@ You don't need to memorize commands. Just describe what you need and Claude will
 | **job-search** | Discover companies, score against career paths, maintain target list | `job-search/SKILL.md` |
 | **job-tracker** | Track application status, follow-ups, pipeline reports | `job-tracker/SKILL.md` |
 | **company-research** | Deep dossier on a single company (overview, signals, fit, risks) | `company-research/SKILL.md` |
-| **cv-tailor** | Generate tailored resume + cover letter for a specific role | `cv-tailor/SKILL.md` |
+| **cv-tailor** | Generate tailored resume + cover letter for a specific role, with a no-invention claims gate and redline | `cv-tailor/SKILL.md` |
+| **interview-prep** | Prep doc for a tracked company: dossier + tracker status + your CV, drafted then independently reviewed | `interview-prep/SKILL.md` |
 | **evals** | Pipeline quality assurance (code review, runtime verify, health monitor) | `evals/SKILL.md` |
 | **onboarding** | Personalized pipeline setup via guided interview | `onboarding/SKILL.md` |
 
@@ -143,6 +162,7 @@ Known companies are rechecked through a monitor cadence gate. Recently verified 
 4. Tailor your CV for a role (cv-tailor)
 5. Track your application (job-tracker)
 6. Follow up on stale applications (job-tracker)
+7. Prepare for the interview (interview-prep)
 ```
 
 Each skill has its own `SKILL.md` with detailed usage instructions.
@@ -171,3 +191,7 @@ Each skill owns its data and exposes clear interfaces:
 - `cv-tailor/data/CV/[company]/` -- Per-company tailored materials
 
 See `references/ownership-matrix.md` for the full ownership map.
+
+## Security
+
+Agents read job postings and careers pages written by strangers, so fetched text is treated as data, never instructions (`references/untrusted-content.md`), and the shared permission allowlist covers only the named pipeline scripts. See [SECURITY.md](SECURITY.md) for the threat model, what's defended, and the residual risks.
