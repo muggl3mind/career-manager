@@ -309,7 +309,7 @@ def cmd_apply(dry_run: bool = False) -> int:
         if match:
             # Merge into existing row (the newer evaluation wins; an
             # unscored needs_research result never clobbers a score).
-            merge_into_existing(match, {
+            merged = {
                 'open_positions': meta.get('title', ''),
                 'llm_score': _score_cell(total),
                 'llm_dimensions_evaluated': _dims_cell(ev.get('llm_dimensions_evaluated')),
@@ -318,7 +318,24 @@ def cmd_apply(dry_run: bool = False) -> int:
                 'llm_evaluated_at': now_ts,
                 'role_family': ev.get('path_name', '') or meta.get('role_family', ''),
                 'last_checked': now_ts[:10],
-            })
+            }
+            merge_into_existing(match, merged)
+            # Cache this posting's own verdict: the company row keeps one
+            # score, so seen-jobs is the only record of this role's score,
+            # and an uncached posting is re-evaluated on every run.
+            seen[url] = {
+                'first_seen': seen.get(url, {}).get('first_seen', now_ts),
+                'llm_score': merged['llm_score'],
+                'llm_dimensions_evaluated': merged['llm_dimensions_evaluated'],
+                'role_family': normalize_path(merged['role_family'], _CANONICAL_PATHS),
+                'llm_rationale': merged['llm_rationale'],
+                'llm_flags': merged['llm_flags'],
+                'llm_hard_pass': 'false',
+                'llm_hard_pass_reason': '',
+                'llm_evaluated_at': now_ts,
+                'title': meta.get('title', ''),
+                'company': company_name,
+            }
             continue
 
         new_row = {
