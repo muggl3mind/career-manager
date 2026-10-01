@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard — no tracked file matches .gitignore
+        run: |
+          leaked="$(git ls-files -ci --exclude-standard)"
+          if [ -n "$leaked" ]; then
+            echo "These tracked files match .gitignore (personal or generated data):"
+            echo "$leaked"
+            exit 1
+          fi
+
+      - name: Guard — shipped search-config.json is the neutral stub
+        run: |
+          python3 - <<'EOF'
+          import json
+          cfg = json.load(open("job-search/data/search-config.json"))
+          if cfg.get("setup_required") is not True:
+              raise SystemExit(
+                  "job-search/data/search-config.json is a personalized config "
+                  "(setup_required is not true). Restore the stub before committing."
+              )
+          EOF
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv and dependencies
+        run: |
+          pip install uv
+          uv venv
+          uv pip install -r requirements.txt
+
+      - name: Test suite
+        run: uv run python3 -m pytest evals/tests/ -q

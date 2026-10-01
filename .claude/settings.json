@@ -1,9 +1,18 @@
 {
   "permissions": {
     "allow": [
-      "Bash(uv run:*)",
-      "Bash(uv venv:*)",
-      "Bash(uv pip install:*)",
+      "WebSearch",
+      "WebFetch",
+      "Bash(uv venv)",
+      "Bash(uv pip install -r requirements.txt)",
+      "Bash(uv run job-search/scripts/ops/:*)",
+      "Bash(uv run cv-tailor/scripts/:*)",
+      "Bash(uv run job-tracker/scripts/:*)",
+      "Bash(uv run interview-prep/scripts/:*)",
+      "Bash(uv run evals/scripts/:*)",
+      "Bash(uv run python3 scripts/smoke_test.py:*)",
+      "Bash(uv run python3 scripts/generate_briefing.py:*)",
+      "Bash(uv run python3 -m pytest evals/tests/:*)",
       "Bash(open job-search/data/dashboard.html)"
     ]
   }
