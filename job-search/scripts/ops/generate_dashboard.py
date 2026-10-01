@@ -370,6 +370,15 @@ def _resolve_group(path: str, display_groups: dict | None) -> str:
     return 'Other'
 
 
+def _dims(row: dict) -> int | None:
+    """How many of the 10 rubric dimensions the score rests on."""
+    try:
+        dims = int(float((row.get('llm_dimensions_evaluated') or '').strip()))
+    except (ValueError, TypeError, AttributeError):
+        return None
+    return dims if dims > 0 else None
+
+
 def _row_record(row: dict, section: str) -> dict:
     """Build one JSON-serializable record describing a company for the client renderer."""
     score = get_score(row)
@@ -390,6 +399,7 @@ def _row_record(row: dict, section: str) -> dict:
         'score': score if score >= 0 else None,
         'score_display': format_score(score),
         'score_tier': _score_tier(score),
+        'dims': _dims(row),
         'status': status,
         'status_label': label,
         'status_class': css_class,
@@ -764,6 +774,8 @@ body { font-family: -apple-system, "Segoe UI", system-ui, sans-serif; background
 .cr-score.score-high { color: var(--status-matched); }
 .cr-score.score-med { color: var(--status-partial); }
 .cr-score.score-low { color: var(--status-missing); }
+.cr-evidence { font-size: 0.72rem; color: var(--card-text-muted); width: 36px; font-family: "SF Mono", "Fira Code", ui-monospace, monospace; }
+.cr-evidence-thin { font-style: italic; }
 .cr-name { font-weight: 600; font-size: 0.92rem; min-width: 140px; }
 .cr-name a { color: var(--accent-light); text-decoration: none; }
 .cr-name a:hover { text-decoration: underline; }
@@ -1078,6 +1090,11 @@ def _get_js() -> str:
     var row = el('div', 'company-row');
     if (rank !== undefined) row.appendChild(el('span', 'cr-rank', '#' + rank));
     row.appendChild(el('span', 'cr-score ' + scoreColor(rec.score_tier, rec.score), rec.score_display));
+    if (rec.dims) {
+      var evidence = el('span', 'cr-evidence' + (rec.dims < 7 ? ' cr-evidence-thin' : ''), rec.dims + '/10');
+      evidence.title = 'Scored on ' + rec.dims + ' of 10 dimensions';
+      row.appendChild(evidence);
+    }
 
     var nameWrap = el('span', 'cr-name');
     if (rec.url) {
@@ -1123,7 +1140,9 @@ def _get_js() -> str:
       (groups[g] = groups[g] || []).push(r);
     });
     Object.keys(groups).forEach(function(g) {
-      groups[g].sort(function(a, b) { return (b.score || -1) - (a.score || -1); });
+      groups[g].sort(function(a, b) {
+        return ((b.score || -1) - (a.score || -1)) || ((b.dims || 0) - (a.dims || 0));
+      });
     });
     var groupNames = Object.keys(groups).sort(function(a, b) {
       var as = groups[a][0].score;

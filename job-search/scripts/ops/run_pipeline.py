@@ -79,18 +79,27 @@ def load_snapshot(path: Path | None = None) -> dict | None:
         return None
 
 
+def _company_scores(rows: list[dict]) -> dict[str, dict]:
+    """Score each company by its best open role, matching what the dashboard shows.
+
+    The company row's own llm_score is whichever role was evaluated last, so
+    diffing it reports swings that are really just a different role.
+    """
+    sys.path.insert(0, str(BASE / 'scripts' / 'core'))
+    from opportunities import company_best_scores, load_role_scores
+    best = company_best_scores(rows, load_role_scores(DATA / 'seen-jobs.json'))
+    return {
+        (r.get('company') or '').strip(): {
+            'score': best.get((r.get('company') or '').strip(), 0),
+            'path': r.get('role_family', ''),
+        }
+        for r in rows if (r.get('company') or '').strip()
+    }
+
+
 def save_snapshot(rows: list[dict], path: Path | None = None) -> None:
     path = path or SNAPSHOT_PATH
-    companies = {}
-    for r in rows:
-        name = (r.get('company') or '').strip()
-        if not name:
-            continue
-        try:
-            score = int(float(r.get('llm_score', 0) or 0))
-        except (ValueError, TypeError):
-            score = 0
-        companies[name] = {'score': score, 'path': r.get('role_family', '')}
+    companies = _company_scores(rows)
     snapshot = {'timestamp': datetime.now().isoformat(), 'companies': companies}
     path.write_text(json.dumps(snapshot, indent=2, ensure_ascii=False), encoding='utf-8')
 
@@ -358,15 +367,7 @@ def phase3() -> dict:
         if (DATA / 'target-companies.csv').exists():
             with (DATA / 'target-companies.csv').open(encoding='utf-8') as f:
                 current_rows = list(_csv.DictReader(f))
-            current_map = {}
-            for r in current_rows:
-                name = (r.get('company') or '').strip()
-                if name:
-                    try:
-                        score = int(float(r.get('llm_score', 0) or 0))
-                    except (ValueError, TypeError):
-                        score = 0
-                    current_map[name] = {'score': score, 'path': r.get('role_family', '')}
+            current_map = _company_scores(current_rows)
             diff = compute_run_diff(snapshot, current_map)
             print_run_diff(diff)
     else:

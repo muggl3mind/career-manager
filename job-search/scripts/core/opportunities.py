@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import json
 import re
 from pathlib import Path
 from urllib.parse import unquote, urlsplit, urlunsplit
@@ -17,6 +18,11 @@ try:
     from csv_schema import OPPORTUNITY_HEADER
 except ImportError:  # pragma: no cover - fallback for direct execution
     from .csv_schema import OPPORTUNITY_HEADER
+
+try:
+    from path_normalizer import normalize_company as _canonical_company
+except ImportError:  # pragma: no cover - fallback for direct execution
+    _canonical_company = lambda name: name  # noqa: E731
 
 
 CLOSED_APP_STATUSES = {'rejected', 'closed', 'declined', 'no_fit_now'}
@@ -123,8 +129,85 @@ def opportunity_key(company: str, role_title: str, role_url: str, source: str = 
     return hashlib.sha1(basis.encode('utf-8')).hexdigest()[:16]
 
 
-def target_row_to_opportunities(row: dict) -> list[dict]:
-    """Convert a target-company row into one or more opportunity rows."""
+# Agents sometimes annotate a role they rejected instead of leaving it out,
+# e.g. "Product Manager | Tax (excluded, tax-core role)".
+_EXCLUDED_ROLE = re.compile(r'\(\s*excluded\b', re.IGNORECASE)
+_TRAILING_PAREN = re.compile(r'\s*\([^()]*\)\s*$')
+
+
+def _strip_annotations(title: str) -> str:
+    """Drop trailing parentheticals such as "(SF, $180K-$250K)"."""
+    prev = None
+    while prev != title:
+        prev, title = title, _TRAILING_PAREN.sub('', title)
+    return title
+
+
+def _is_hard_pass(entry: dict) -> bool:
+    return str(entry.get('llm_hard_pass', '')).strip().lower() == 'true'
+
+
+def _entry_score(entry: dict) -> float:
+    try:
+        return float(entry.get('llm_score') or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _better_entry(current: dict | None, candidate: dict) -> dict:
+    """Pick the entry that represents a role posted more than once:
+    any live posting beats a hard-passed one, then the higher score wins."""
+    if current is None:
+        return candidate
+    if _is_hard_pass(current) != _is_hard_pass(candidate):
+        return current if _is_hard_pass(candidate) else candidate
+    return candidate if _entry_score(candidate) > _entry_score(current) else current
+
+
+def load_role_scores(seen_jobs_path: Path) -> dict[tuple[str, str], dict]:
+    """Index per-job evaluations from seen-jobs.json by (company, role title).
+
+    A company row keeps one score, but each evaluated posting has its own.
+    Keys use both the full title and the title without trailing
+    parentheticals so annotated titles still find their evaluation.
+    """
+    if not seen_jobs_path or not Path(seen_jobs_path).exists():
+        return {}
+    try:
+        seen = json.loads(Path(seen_jobs_path).read_text(encoding='utf-8'))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    index: dict[tuple[str, str], dict] = {}
+    for entry in (seen.values() if isinstance(seen, dict) else []):
+        if not isinstance(entry, dict) or entry.get('llm_score') in (None, ''):
+            continue
+        company = normalize_company(_canonical_company(entry.get('company', '')))
+        title = entry.get('title', '')
+        for title_key in {normalize_text(title), normalize_text(_strip_annotations(title))}:
+            if company and title_key:
+                index[(company, title_key)] = _better_entry(index.get((company, title_key)), entry)
+    return index
+
+
+def _lookup_role_score(role_scores: dict, company: str, role_title: str) -> dict | None:
+    if not role_scores:
+        return None
+    company_key = normalize_company(company)
+    return (role_scores.get((company_key, normalize_text(role_title)))
+            or role_scores.get((company_key, normalize_text(_strip_annotations(role_title)))))
+
+
+def default_role_scores(target_csv: Path) -> dict[tuple[str, str], dict]:
+    """Per-role scores stored next to the target CSV, if any."""
+    return load_role_scores(Path(target_csv).parent / 'seen-jobs.json')
+
+
+def target_row_to_opportunities(row: dict, role_scores: dict | None = None) -> list[dict]:
+    """Convert a target-company row into one or more opportunity rows.
+
+    Each role takes its own evaluation from role_scores when one exists and
+    falls back to the company-level score otherwise.
+    """
     company = (row.get('company') or '').strip()
     if not company:
         return []
@@ -152,6 +235,17 @@ def target_row_to_opportunities(row: dict) -> list[dict]:
 
     opportunities = []
     for role_title in roles:
+        if _EXCLUDED_ROLE.search(role_title):
+            continue
+        evaluation = _lookup_role_score(role_scores, company, role_title)
+        if evaluation and _is_hard_pass(evaluation):
+            continue
+        scored_from = evaluation or {
+            'llm_score': row.get('llm_score', ''),
+            'llm_dimensions_evaluated': row.get('llm_dimensions_evaluated', ''),
+            'llm_rationale': row.get('llm_rationale', ''),
+            'llm_flags': row.get('llm_flags', ''),
+        }
         this_role_url = ''
         if shared_role_url and (not multiple_roles or role_title_matches_url(role_title, shared_role_url)):
             this_role_url = shared_role_url
@@ -169,14 +263,15 @@ def target_row_to_opportunities(row: dict) -> list[dict]:
             'opportunity_status': status,
             'company_lifecycle_state': lifecycle,
             'validation_status': validation,
-            'llm_score': row.get('llm_score', ''),
+            'llm_score': scored_from.get('llm_score', ''),
+            'llm_dimensions_evaluated': scored_from.get('llm_dimensions_evaluated', ''),
             'role_family': row.get('role_family', ''),
             'source': row.get('source', ''),
             'source_key': row.get('role_url', '') or row.get('careers_url', ''),
             'last_checked': row.get('last_checked', ''),
             'last_verified_at': row.get('last_verified_at', ''),
-            'fit_summary': row.get('llm_rationale', ''),
-            'llm_flags': row.get('llm_flags', ''),
+            'fit_summary': scored_from.get('llm_rationale', ''),
+            'llm_flags': scored_from.get('llm_flags', ''),
             'notes': row.get('notes', ''),
         })
     return opportunities
@@ -197,11 +292,11 @@ def write_opportunities(path: Path, rows: list[dict]) -> None:
         writer.writerows(rows)
 
 
-def opportunities_from_targets(target_rows: list[dict]) -> list[dict]:
+def opportunities_from_targets(target_rows: list[dict], role_scores: dict | None = None) -> list[dict]:
     rows: list[dict] = []
     seen: set[str] = set()
     for target in target_rows:
-        for opportunity in target_row_to_opportunities(target):
+        for opportunity in target_row_to_opportunities(target, role_scores):
             key = opportunity['opportunity_key']
             if key in seen:
                 continue
@@ -212,7 +307,7 @@ def opportunities_from_targets(target_rows: list[dict]) -> list[dict]:
 
 def sync_opportunities_from_targets(target_csv: Path, opportunities_csv: Path) -> list[dict]:
     """Regenerate opportunities.csv from target-companies.csv."""
-    rows = opportunities_from_targets(read_csv(target_csv))
+    rows = opportunities_from_targets(read_csv(target_csv), default_role_scores(target_csv))
     rows.sort(key=lambda r: (
         -_score_value(r),
         normalize_company(r.get('company', '')),
@@ -220,6 +315,19 @@ def sync_opportunities_from_targets(target_csv: Path, opportunities_csv: Path) -
     ))
     write_opportunities(opportunities_csv, rows)
     return rows
+
+
+def company_best_scores(target_rows: list[dict], role_scores: dict | None = None) -> dict[str, int]:
+    """Score each company by its best open role (company score if it lists none)."""
+    best: dict[str, int] = {}
+    for row in target_rows:
+        name = (row.get('company') or '').strip()
+        if not name:
+            continue
+        opportunities = target_row_to_opportunities(row, role_scores)
+        scores = [_score_value(o) for o in opportunities] or [_score_value(row)]
+        best[name] = int(max(scores))
+    return best
 
 
 def _score_value(row: dict) -> float:
@@ -281,6 +389,7 @@ def opportunity_to_view_row(opportunity: dict, app: dict | None = None) -> dict:
         'opportunity_key': opportunity.get('opportunity_key', ''),
         'company': opportunity.get('company', ''),
         'llm_score': opportunity.get('llm_score', ''),
+        'llm_dimensions_evaluated': opportunity.get('llm_dimensions_evaluated', ''),
         'role_family': opportunity.get('role_family', ''),
         'open_positions': opportunity.get('role_title', ''),
         'role_title': opportunity.get('role_title', ''),

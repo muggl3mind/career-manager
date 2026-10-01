@@ -18,6 +18,7 @@ from opportunities import (
     APPLIED_APP_STATUSES,
     CLOSED_APP_STATUSES,
     application_to_view_row,
+    default_role_scores,
     matching_applications,
     opportunity_to_view_row,
     opportunities_from_targets,
@@ -50,6 +51,18 @@ def _get_score(row: dict) -> float:
         return float(raw) if raw else 0.0
     except (ValueError, TypeError):
         return 0.0
+
+
+def _get_dims(row: dict) -> int:
+    try:
+        return int(float((row.get('llm_dimensions_evaluated') or '').strip() or 0))
+    except (ValueError, TypeError):
+        return 0
+
+
+def _rank_key(row: dict) -> tuple[float, int]:
+    """Score first; on a tie, the better-evidenced row ranks higher."""
+    return (_get_score(row), _get_dims(row))
 
 
 def _is_active_lifecycle(row: dict) -> bool:
@@ -114,7 +127,7 @@ def _aggregate_by_company(rows: list[dict]) -> list[dict]:
                 or (existing.get('source_key') or '').strip()
             )
 
-        if _get_score(row) > _get_score(existing):
+        if _rank_key(row) > _rank_key(existing):
             keep = {
                 'open_positions': existing['open_positions'],
                 'role_title': existing['role_title'],
@@ -166,7 +179,7 @@ def build_active_views(
     opportunities_csv = target_csv.parent / 'opportunities.csv'
     opportunities = _read_csv(opportunities_csv)
     if not opportunities:
-        opportunities = opportunities_from_targets(_read_csv(target_csv))
+        opportunities = opportunities_from_targets(_read_csv(target_csv), default_role_scores(target_csv))
     apps = _read_csv(apps_csv)
 
     explore_min = cfg.get('explore_min_score', 50)
@@ -176,6 +189,7 @@ def build_active_views(
     best_fits: list[dict] = []
     worth_exploring: list[dict] = []
     closed_out: list[dict] = []
+    candidates: list[dict] = []
     matched_app_ids: set[int] = set()
 
     for opportunity in opportunities:
@@ -199,12 +213,8 @@ def build_active_views(
         if not _is_active_lifecycle(row):
             continue
 
-        # All active companies scoring >= apply_min go to best_fits
-        # role_url is a display bonus (clickable link), not a gate
-        if score >= apply_min:
-            best_fits.append(row)
-        elif score >= explore_min:
-            worth_exploring.append(row)
+        if score >= explore_min:
+            candidates.append(row)
 
     # Add application-only entries that did not match a current opportunity.
     for app in apps:
@@ -218,14 +228,20 @@ def build_active_views(
             closed_out.append(row)
 
     follow_up = _aggregate_by_company(follow_up)
-    best_fits = _aggregate_by_company(best_fits)
-    worth_exploring = _aggregate_by_company(worth_exploring)
+    # Roles at one company can score differently, so bucket each company once
+    # by its best role: >= apply_min is a best fit, otherwise worth exploring.
+    # role_url is a display bonus (clickable link), not a gate.
+    for row in _aggregate_by_company(candidates):
+        if _get_score(row) >= apply_min:
+            best_fits.append(row)
+        else:
+            worth_exploring.append(row)
     closed_out = _aggregate_by_company(closed_out)
 
     # Sort
     follow_up.sort(key=lambda r: r.get('date_applied') or r.get('date_added') or '', reverse=False)
-    best_fits.sort(key=lambda r: _get_score(r), reverse=True)
-    worth_exploring.sort(key=lambda r: _get_score(r), reverse=True)
+    best_fits.sort(key=_rank_key, reverse=True)
+    worth_exploring.sort(key=_rank_key, reverse=True)
 
     return {
         'follow_up': follow_up,
