@@ -26,7 +26,9 @@ job-search/data/monitor-results.json
 job-search/data/prospecting-context.json
 job-search/data/prospecting-results.json
 job-search/data/pipeline-phase1-summary.json
-job-search/data/search-config.json
+# NOTE: job-search/data/search-config.json is intentionally tracked. It ships
+# as a neutral stub (setup_required: true). After onboarding personalizes it,
+# avoid committing your personalized version.
 job-search/data/dashboard.html
 job-search/data/dashboard-full.html
 job-tracker/data/applications.csv
@@ -40,6 +42,9 @@ cv-tailor/data/cv-registry.json
 cv-tailor/data/cv-role-families.json
 cv-tailor/data/pending-analysis.json
 cv-tailor/data/analysis.json
+
+# CV tailor personal profile (copy cv-tailor/config/user-profile.yaml.example)
+cv-tailor/config/user-profile.yaml
 
 # Eval history
 evals/data/score-history.jsonl

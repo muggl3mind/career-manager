@@ -74,7 +74,7 @@ Wait for confirmation before proceeding.
 ```bash
 uv run cv-tailor/scripts/run_pipeline.py --phase apply --company "Acme" --role "AI PM"
 ```
-Validates schema, patches resume, generates cover letter + redline + QC + manifest.
+Validates schema, runs the deterministic claims gate (every number, credential, employer name, and date in all four edit categories and the cover letter must already exist in the base CV or user profile), patches resume, generates cover letter + redline + QC + manifest. The redline covers all four edit categories, and the cover letter goes through the quality gate. If any gate fails, `data/analysis.json` is kept so the failure can be debugged.
 
 **Next step:** After producing artifacts, suggest: "Want me to add this to your tracker?"
 
@@ -86,9 +86,10 @@ Validates schema, patches resume, generates cover letter + redline + QC + manife
 | `scripts/build_analysis.py` | Reads base CV + JD, writes pending-analysis.json for Claude |
 | `scripts/select_base_cv.py` | Deterministic base CV selection from registry |
 | `scripts/validate_analysis.py` | Schema + contract validation gate |
+| `scripts/claims_gate.py` | Deterministic no-invention gate: diffs numbers, credentials, employers, and dates in all edits + cover letter against base CV + user profile |
 | `scripts/docx_safe_patch.py` | Phrase-level docx edits preserving run-level formatting |
-| `scripts/generate_redline.py` | Change-log / redline artifact generation |
-| `scripts/quality_gate.py` | Final quality checks before deliverables |
+| `scripts/generate_redline.py` | Change-log / redline artifact generation (all four edit categories) |
+| `scripts/quality_gate.py` | Final quality checks before deliverables (resume + cover letter) |
 | `scripts/index_store.py` | CV registry builder — maps all CV files |
 | `scripts/reindex_cv_assets.py` | Manual registry rebuild utility |
 
@@ -112,9 +113,37 @@ After producing artifacts:
 - **Resume must stay within 2 pages.** If edits push it to page 3, cut or condense. Check page count before finalizing.
 - **Cover letter must stay within 1 page.** 3-4 paragraphs max.
 
+## Core Strengths Validation
+
+Before writing `core_strengths` edits, apply these checks to each proposed strength:
+
+1. Is it a noun-phrase competency (e.g., "PE Fund Accounting"), not a verb-phrase task (e.g., "Managing PE funds")?
+2. Is it already obvious from the job titles in the experience section? If yes, drop it.
+3. Can the candidate point to a specific project or metric in the CV that proves it? If not, it is a buzzword.
+4. Is it specific enough that another applicant could not honestly claim the same thing? "Senior communication skills" does not differentiate.
+
+If 2 or more checks fail, regenerate the strength. Aim for 4-5 strengths. Fewer than 4 looks thin; more than 5 dilutes.
+
+## Summary Structure
+
+A professional summary must have exactly 3 sentences. Never present a partial summary:
+
+- **Sentence 1 (Identity):** Who the candidate is and the career through-line or pivot.
+- **Sentence 2 (Proof):** Concrete credentials with numbers and scope.
+- **Sentence 3 (Value):** What the candidate specifically brings to this role, using language from the JD.
+
+Word count: 75-100. Below 60 is bland; above 110 is bloated. Sentence 3 must contain at least one phrase that pattern-matches the JD responsibilities section.
+
+## Cover Letter Rules
+
+- Must include a wedge paragraph: name the gap between the candidate's background and the JD's stated ideal, then bridge it explicitly. The cover letter does the work the CV cannot.
+- Never frame the gap defensively ("the value I bring is not X but Y"). Lead with what the candidate brings.
+- If `user_profile.projects.poc_disclaimer` is true, frame AI projects as prototypes: "built to demonstrate" or "proof of concept showing" — never "runs autonomously" or implies production-grade deployment.
+
 ## Error Handling
 
 - If style/layout drifts, switch to micro-edit mode.
 - If dependency error (`docx` missing), run via workspace venv python.
 - If base CV unavailable, stop with remediation steps.
 - If analysis.json validation fails, surface errors and stop before patching.
+- If the claims gate fails, surface every violation message, fix the offending edits in `data/analysis.json` (only claims that exist in the base CV or user profile are allowed), and re-run apply. The pipeline keeps `data/analysis.json` on any failure.

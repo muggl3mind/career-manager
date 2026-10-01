@@ -50,6 +50,72 @@ class TestOnboardingSkill:
         assert "silently" in content.lower(), \
             "Onboarding must generate files silently without overwrite warnings"
 
+    def test_defaults_to_four_to_five_paths(self):
+        content = _read("onboarding/SKILL.md")
+        assert "4-5 paths" in content, \
+            "Onboarding must default to 4-5 career paths"
+        assert "5-8 paths" not in content, \
+            "Onboarding must not reference the old 5-8 path default"
+        assert "Minimum: 5 paths" not in content, \
+            "Onboarding must not require a 5-path minimum"
+
+    def test_add_more_paths_later_guidance(self):
+        content = _read("onboarding/SKILL.md")
+        assert "add more paths later" in content.lower(), \
+            "Onboarding must tell users they can add more paths later"
+
+
+class TestOnboardingExample:
+    """Pins onboarding/references/example-output.md to the current schemas."""
+
+    def test_search_config_matches_current_schema(self):
+        content = _read("onboarding/references/example-output.md")
+        for key in ('"setup_required": false', '"query_packs"',
+                    '"path_check_instructions"', '"path_aliases"',
+                    '"display_groups"', '"search_locations"'):
+            assert key in content, f"Example search-config must include {key}"
+
+    def test_search_config_shows_four_to_five_packs(self):
+        content = _read("onboarding/references/example-output.md")
+        assert content.count('"job_type"') in (4, 5), \
+            "Example must show 4-5 query packs to match the onboarding default"
+
+    def test_criteria_uses_ratio_rubric(self):
+        content = _read("onboarding/references/example-output.md")
+        assert "yes count / evaluated count" in content, \
+            "Example criteria must use the canonical ratio scoring formula"
+        assert "never 0" in content, \
+            "Example criteria must state unknowns are null, never 0"
+        assert "Must-Haves" not in content, \
+            "Example must not use the retired Must-Haves rubric format"
+
+    def test_config_yaml_uses_current_keys(self):
+        content = _read("onboarding/references/example-output.md")
+        for key in ("cv_base", "jobspy_enabled", "apply_min_score",
+                    "discover_min_score", "archive_grace_runs"):
+            assert key in content, f"Example config.yaml must include {key}"
+        for legacy in ("update_frequency", "auto_search", "notify_strong_matches"):
+            assert legacy not in content, \
+                f"Example config.yaml must not include retired key {legacy}"
+
+
+# --- Email templates ---
+
+class TestEmailTemplates:
+    def test_unused_digest_templates_deleted(self):
+        for name in ("morning-email.md", "afternoon-email.md", "evening-email.md"):
+            assert not (PROJECT_ROOT / "job-search" / "templates" / name).exists(), \
+                f"{name} is an orphaned digest artifact and must stay deleted"
+
+    def test_followup_template_kept(self):
+        assert (PROJECT_ROOT / "job-search" / "templates" / "follow-up-email.md").exists(), \
+            "follow-up-email.md is referenced by job-tracker and must exist"
+
+    def test_send_email_listing_removed(self):
+        content = _read("job-search/SKILL.md")
+        assert "send_email.py" not in content, \
+            "job-search SKILL.md must not list send_email.py (not part of the pipeline)"
+
 
 # --- Config ---
 

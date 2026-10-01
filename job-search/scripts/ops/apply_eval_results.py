@@ -31,9 +31,13 @@ PENDING_EVAL = DATA / 'pending-eval.json'
 
 sys.path.insert(0, str(BASE / 'scripts' / 'core'))
 from csv_schema import HEADER
+from csv_io import write_csv_atomic
 from path_normalizer import normalize_path, normalize_company
 from company_dedup import find_existing, merge_into_existing
 from search_config_loader import load_search_config
+from scoring import NEEDS_RESEARCH_FLAG
+from flags import join_flags
+from merge_validation import quarantine_row, validate_eval_result
 
 _SEARCH_CONFIG = load_search_config(DATA / 'search-config.json')
 _CANONICAL_PATHS = [v['label'] for v in _SEARCH_CONFIG['query_packs'].values()] if _SEARCH_CONFIG else []
@@ -79,11 +83,7 @@ def _sync_xlsx() -> None:
 
 
 def _write_csv(path: Path, rows: List[Dict], header: List[str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open('w', newline='', encoding='utf-8') as f:
-        w = csv.DictWriter(f, fieldnames=header, extrasaction='ignore')
-        w.writeheader()
-        w.writerows(rows)
+    write_csv_atomic(path, rows, header)
 
 
 def _sort_key(r: Dict) -> tuple:
@@ -102,13 +102,106 @@ def main() -> int:
     return cmd_apply(dry_run=args.dry_run)
 
 
+def _score_cell(total) -> str:
+    """CSV cell for a validated total: '' means "not scored", '0' is a
+    real zero score (finding H2: never conflate the two)."""
+    return '' if total is None else str(int(total))
+
+
+def _dims_cell(dims) -> str:
+    """CSV cell for llm_dimensions_evaluated (finding M9)."""
+    return '' if dims in (None, '') else str(int(dims))
+
+
+def _validate_results(results: List[Dict]) -> List[Dict]:
+    """Validate agent self-reports before any merge (finding C2).
+
+    The recomputed ratio score always wins when dimension data is present.
+    Rows that cannot be verified (non-zero total with no dimension data,
+    unknown rubric keys, non yes/no/unknown dimension values) are appended
+    to data/quarantine/apply_eval_results-<reason>.jsonl and never merged.
+    Rows with too few evaluated dimensions are kept unscored with the
+    needs_research flag, per the SKILL.md eval-results contract.
+
+    After validation each row's total_score is canonical: an int (0 is a
+    real score) or None (not scored / needs_research). The evaluated
+    dimension count is stored on the row as llm_dimensions_evaluated
+    (finding M9: confidence is persisted, not thrown away).
+    """
+    valid: List[Dict] = []
+    quarantined = 0
+    for ev in results:
+        label = ev.get('actual_company') or ev.get('careers_url') or '?'
+        verdict = validate_eval_result(ev.get('total_score'), ev.get('scores'))
+        if not verdict.ok:
+            qpath = quarantine_row(
+                DATA, 'apply_eval_results', verdict.reason, ev, verdict.detail,
+            )
+            print(f"  [quarantine] {label}: {verdict.reason} ({verdict.detail}) -> {qpath}")
+            quarantined += 1
+            continue
+        if verdict.detail:
+            print(f"  [merge_validation] {label}: {verdict.detail}")
+        if verdict.needs_research:
+            ev['total_score'] = None
+            red_flags = list(ev.get('red_flags') or [])
+            if NEEDS_RESEARCH_FLAG not in red_flags:
+                red_flags.append(NEEDS_RESEARCH_FLAG)
+            ev['red_flags'] = red_flags
+        else:
+            ev['total_score'] = verdict.score
+        ev['llm_dimensions_evaluated'] = verdict.dimensions_evaluated
+        valid.append(ev)
+    if quarantined:
+        print(f"  [quarantine] {quarantined} result(s) rejected; see {DATA / 'quarantine'}")
+    return valid
+
+
+def _load_eval_results() -> List[Dict]:
+    """Load eval results, preferring per-shard files when present.
+
+    Multi-shard runs write eval-results-shard-N.json (one per parallel eval
+    agent) instead of racing on a single eval-results.json. This helper
+    merges shard files in order, falling back to the single-file format
+    when no shards exist. Duplicate careers_urls across shards keep the
+    later-shard verdict (matching within-shard resume semantics).
+
+    Shard files are searched in EVAL_RESULTS.parent so tests that
+    monkeypatch EVAL_RESULTS also relocate shard discovery.
+    """
+    shard_paths = sorted(EVAL_RESULTS.parent.glob('eval-results-shard-*.json'))
+    merged: List[Dict] = []
+    seen_urls: set = set()
+    if shard_paths:
+        for path in shard_paths:
+            with path.open(encoding='utf-8') as f:
+                for row in json.load(f):
+                    url = row.get('careers_url', '')
+                    if url and url in seen_urls:
+                        # Later shards overwrite earlier ones on collision.
+                        merged = [r for r in merged if r.get('careers_url') != url]
+                    merged.append(row)
+                    if url:
+                        seen_urls.add(url)
+        print(f"  [eval_merge] loaded {len(merged)} results from {len(shard_paths)} shard file(s)")
+        return merged
+    if EVAL_RESULTS.exists():
+        with EVAL_RESULTS.open(encoding='utf-8') as f:
+            return json.load(f)
+    return []
+
+
 def cmd_apply(dry_run: bool = False) -> int:
-    if not EVAL_RESULTS.exists():
-        print(f"ERROR: {EVAL_RESULTS} not found. Claude must write eval-results.json first.")
+    results = _load_eval_results()
+    if not results:
+        print(
+            f"ERROR: no eval results found. Expected eval-results-shard-*.json "
+            f"(one per parallel eval agent) or {EVAL_RESULTS.name}."
+        )
         return 1
 
-    with EVAL_RESULTS.open(encoding='utf-8') as f:
-        results: List[Dict] = json.load(f)
+    # Merge-time validation: quarantine unverifiable or invalid self-reports.
+    results = _validate_results(results)
 
     # Build lookup by careers_url
     eval_by_url: Dict[str, Dict] = {r['careers_url']: r for r in results if r.get('careers_url')}
@@ -142,8 +235,7 @@ def cmd_apply(dry_run: bool = False) -> int:
         if not ev:
             continue
 
-        scores = ev.get('scores', {})
-        total = ev.get('total_score') or (sum(scores.values()) if scores else 0)
+        total = ev.get('total_score')
         hard_pass = str(ev.get('hard_pass', False)).lower() == 'true'
 
         # Resolve agency company name
@@ -151,9 +243,11 @@ def cmd_apply(dry_run: bool = False) -> int:
         if actual:
             row['company'] = actual
 
-        row['llm_score'] = int(total) if total else ''
+        # '' = not scored (needs_research); '0' = honest zero (finding H2).
+        row['llm_score'] = _score_cell(total)
+        row['llm_dimensions_evaluated'] = _dims_cell(ev.get('llm_dimensions_evaluated'))
         row['llm_rationale'] = ev.get('fit_summary', '')
-        row['llm_flags'] = ' | '.join(ev.get('red_flags', []))
+        row['llm_flags'] = join_flags(ev.get('red_flags', []))
         row['llm_hard_pass'] = 'true' if hard_pass else 'false'
         row['llm_hard_pass_reason'] = ev.get('hard_pass_reason') or ''
         row['llm_evaluated_at'] = now_ts
@@ -168,6 +262,7 @@ def cmd_apply(dry_run: bool = False) -> int:
         seen[url] = {
             'first_seen': now_ts,
             'llm_score': row['llm_score'],
+            'llm_dimensions_evaluated': row.get('llm_dimensions_evaluated', ''),
             'role_family': row.get('role_family', ''),
             'llm_rationale': row.get('llm_rationale', ''),
             'llm_flags': row.get('llm_flags', ''),
@@ -183,26 +278,43 @@ def cmd_apply(dry_run: bool = False) -> int:
     added = 0
     for url, ev in eval_by_url.items():
         hard_pass = str(ev.get('hard_pass', False)).lower() == 'true'
-        if hard_pass:
-            hard_pass_urls.add(url)
-            continue
-        scores = ev.get('scores', {})
-        total = ev.get('total_score') or (sum(scores.values()) if scores else 0)
-        if not total:
-            continue
         meta = pending_meta.get(url, {})
         actual = ev.get('actual_company')
         company_name = normalize_company(actual or meta.get('company', ''))
+        if hard_pass:
+            hard_pass_urls.add(url)
+            # Cache the hard-pass verdict (finding H4): without this,
+            # new hard-passes were re-evaluated on every run.
+            seen[url] = {
+                'first_seen': seen.get(url, {}).get('first_seen', now_ts),
+                'llm_score': _score_cell(ev.get('total_score')),
+                'llm_dimensions_evaluated': _dims_cell(ev.get('llm_dimensions_evaluated')),
+                'role_family': ev.get('path_name', '') or meta.get('role_family', ''),
+                'llm_rationale': ev.get('fit_summary', ''),
+                'llm_flags': join_flags(ev.get('red_flags', [])),
+                'llm_hard_pass': 'true',
+                'llm_hard_pass_reason': ev.get('hard_pass_reason') or '',
+                'llm_evaluated_at': now_ts,
+                'title': meta.get('title', ''),
+                'company': company_name,
+            }
+            continue
+        total = ev.get('total_score')
+        if total is None and not company_name:
+            # Unscored result with no usable identity: nothing to add.
+            continue
 
         # Check if this company already exists (by name, not just URL)
         match = find_existing(company_name, target_rows)
         if match:
-            # Merge into existing row
+            # Merge into existing row (the newer evaluation wins; an
+            # unscored needs_research result never clobbers a score).
             merge_into_existing(match, {
                 'open_positions': meta.get('title', ''),
-                'llm_score': int(total),
+                'llm_score': _score_cell(total),
+                'llm_dimensions_evaluated': _dims_cell(ev.get('llm_dimensions_evaluated')),
                 'llm_rationale': ev.get('fit_summary', ''),
-                'llm_flags': ' | '.join(ev.get('red_flags', [])),
+                'llm_flags': join_flags(ev.get('red_flags', [])),
                 'llm_evaluated_at': now_ts,
                 'role_family': ev.get('path_name', '') or meta.get('role_family', ''),
                 'last_checked': now_ts[:10],
@@ -228,9 +340,10 @@ def cmd_apply(dry_run: bool = False) -> int:
             'location_detected': meta.get('location', ''),
             'validation_status': 'pass',
             'exclusion_reason': '',
-            'llm_score': int(total),
+            'llm_score': _score_cell(total),
+            'llm_dimensions_evaluated': _dims_cell(ev.get('llm_dimensions_evaluated')),
             'llm_rationale': ev.get('fit_summary', ''),
-            'llm_flags': ' | '.join(ev.get('red_flags', [])),
+            'llm_flags': join_flags(ev.get('red_flags', [])),
             'llm_hard_pass': 'false',
             'llm_hard_pass_reason': '',
             'llm_evaluated_at': now_ts,
@@ -243,6 +356,7 @@ def cmd_apply(dry_run: bool = False) -> int:
         seen[url] = {
             'first_seen': now_ts,
             'llm_score': new_row['llm_score'],
+            'llm_dimensions_evaluated': new_row.get('llm_dimensions_evaluated', ''),
             'role_family': new_row.get('role_family', ''),
             'llm_rationale': new_row.get('llm_rationale', ''),
             'llm_flags': new_row.get('llm_flags', ''),
@@ -286,11 +400,16 @@ def cmd_apply(dry_run: bool = False) -> int:
         _write_csv(RAW_CSV, raw_rows, HEADER)
         with SEEN_JOBS.open('w', encoding='utf-8') as f:
             json.dump(seen, f, indent=2, ensure_ascii=False)
-        # Clean up working files
+        # Clean up working files (relative to EVAL_RESULTS.parent so
+        # monkeypatched tests locate their own tmp shards).
         if EVAL_RESULTS.exists():
             EVAL_RESULTS.unlink()
+        for shard_path in EVAL_RESULTS.parent.glob('eval-results-shard-*.json'):
+            shard_path.unlink()
         if PENDING_EVAL.exists():
             PENDING_EVAL.unlink()
+        for shard_path in PENDING_EVAL.parent.glob('pending-eval-shard-*.json'):
+            shard_path.unlink()
         _sync_xlsx()
         print(f"✓ Updated {TARGET_CSV.name} | {RAW_CSV.name} | seen-jobs.json | target-companies.xlsx")
     else:

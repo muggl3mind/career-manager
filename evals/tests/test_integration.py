@@ -297,22 +297,30 @@ class TestMonitorResultsScoringSchema:
         seen_json.write_text('{}')
         monitor_context = tmp_path / "monitor-context.json"
 
-        # Patch module-level path constants
+        # Patch module-level path constants. path_normalizer must be
+        # isolated from the user's live search-config.json, whose
+        # path_aliases would rewrite 'AI Product' to a canonical label.
+        import path_normalizer
         orig_target = mw.TARGET_CSV
         orig_results = mw.MONITOR_RESULTS
         orig_seen = mw.SEEN_COMPANIES
         orig_context = mw.MONITOR_CONTEXT
+        orig_norm_config = path_normalizer.CONFIG_PATH
         try:
             mw.TARGET_CSV = target_csv
             mw.MONITOR_RESULTS = results_json
             mw.SEEN_COMPANIES = seen_json
             mw.MONITOR_CONTEXT = monitor_context
+            path_normalizer.CONFIG_PATH = tmp_path / "no-search-config.json"
+            path_normalizer._cache = None
             rc = mw.cmd_merge(dry_run=False)
         finally:
             mw.TARGET_CSV = orig_target
             mw.MONITOR_RESULTS = orig_results
             mw.SEEN_COMPANIES = orig_seen
             mw.MONITOR_CONTEXT = orig_context
+            path_normalizer.CONFIG_PATH = orig_norm_config
+            path_normalizer._cache = None
 
         assert rc == 0, f"cmd_merge returned {rc}"
 
@@ -434,7 +442,8 @@ class TestProspectingResultsScoringSchema:
                 'path': 3,
                 'path_name': 'AI-Native Fintech',
                 'notes': 'Fast growing team.',
-                'llm_score': 78,
+                # Ratio spec: 7 yes of 9 evaluated -> floor(700/9) = 77.
+                'llm_score': 77,
                 'llm_dimensions_evaluated': 9,
                 'llm_rationale': 'Good domain fit. Strong AI centrality.',
                 'llm_path_name': 'AI-Native Fintech',
@@ -473,7 +482,7 @@ class TestProspectingResultsScoringSchema:
         assert len(nexus_rows) == 1, "Expected exactly one FinTech Nexus row"
         row = nexus_rows[0]
 
-        assert row['llm_score'] == '78', f"Expected llm_score=78, got {row['llm_score']!r}"
+        assert row['llm_score'] == '77', f"Expected llm_score=77, got {row['llm_score']!r}"
         assert row['llm_rationale'] == 'Good domain fit. Strong AI centrality.', \
             f"Unexpected llm_rationale: {row['llm_rationale']!r}"
         assert row['role_family'] == 'AI-Native Fintech', \

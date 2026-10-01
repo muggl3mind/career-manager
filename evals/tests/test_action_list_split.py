@@ -16,7 +16,8 @@ sys.path.insert(0, str(REPO / 'job-search' / 'scripts' / 'core'))
 sys.path.insert(0, str(REPO / 'scripts'))
 
 from csv_schema import HEADER
-from dashboard_views import build_active_views
+from dashboard_views import aggregate_display_rows, build_active_views
+from opportunities import opportunities_from_targets
 
 
 def _write_target(path: Path, rows: list[dict]) -> None:
@@ -173,6 +174,84 @@ class TestSorting:
         assert names == ['High', 'Mid', 'Low']
 
 
+class TestCompanyAggregation:
+    def test_multiple_open_roles_at_same_company_collapse_to_one_best_fit_row(self, tmp_path):
+        _write_target(tmp_path / 't.csv', [
+            {'company': 'OpenAI',
+             'careers_url': 'https://openai.com/careers',
+             'open_positions': 'Solutions Architect; Accounting Manager',
+             'validation_status': 'pass',
+             'llm_score': '95',
+             'lifecycle_state': 'active'},
+        ])
+        _write_apps(tmp_path / 'a.csv', [])
+        views = build_active_views(tmp_path / 't.csv', tmp_path / 'a.csv', _cfg())
+
+        assert len(views['best_fits']) == 1
+        assert views['best_fits'][0]['company'] == 'OpenAI'
+        assert views['best_fits'][0]['open_positions'] == 'Accounting Manager; Solutions Architect'
+
+    def test_multiple_applied_roles_at_same_company_collapse_to_one_follow_up_row(self, tmp_path):
+        _write_target(tmp_path / 't.csv', [
+            {'company': 'Basis',
+             'careers_url': 'https://jobs.ashbyhq.com/basis-ai',
+             'open_positions': 'Deployed Strategist; Implementation Manager',
+             'validation_status': 'pass',
+             'llm_score': '88',
+             'lifecycle_state': 'active'},
+        ])
+        _write_apps(tmp_path / 'a.csv', [
+            {'company': 'Basis',
+             'role': 'Deployed Strategist',
+             'job_url': 'https://jobs.ashbyhq.com/basis-ai',
+             'status': 'applied'},
+            {'company': 'Basis',
+             'role': 'Implementation Manager',
+             'job_url': 'https://jobs.ashbyhq.com/basis-ai',
+             'status': 'applied'},
+        ])
+        views = build_active_views(tmp_path / 't.csv', tmp_path / 'a.csv', _cfg())
+
+        assert len(views['follow_up']) == 1
+        assert views['follow_up'][0]['company'] == 'Basis'
+        assert views['follow_up'][0]['open_positions'] == 'Deployed Strategist; Implementation Manager'
+        assert views['follow_up'][0]['apply_url'] == 'https://jobs.ashbyhq.com/basis-ai'
+
+    def test_consolidated_company_row_keeps_source_link_fallback(self, tmp_path):
+        _write_target(tmp_path / 't.csv', [
+            {'company': 'Anthropic',
+             'careers_url': 'https://www.linkedin.com/jobs/view/4322460009',
+             'role_url': 'https://job-boards.greenhouse.io/anthropic/jobs/4985877008',
+             'open_positions': 'Finance Systems, Head of AI & Innovation; Senior Manager, Corporate Accounting Operations',
+             'validation_status': 'pass',
+             'llm_score': '92',
+             'lifecycle_state': 'active'},
+        ])
+        _write_apps(tmp_path / 'a.csv', [])
+        views = build_active_views(tmp_path / 't.csv', tmp_path / 'a.csv', _cfg())
+
+        assert len(views['best_fits']) == 1
+        assert views['best_fits'][0]['apply_url'] == 'https://job-boards.greenhouse.io/anthropic/jobs/4985877008'
+
+    def test_full_pipeline_display_collapses_company_across_sections(self):
+        rows = [
+            {'company': 'OpenAI',
+             'open_positions': 'Forward Deployed Engineer',
+             'app_status': 'applied',
+             'apply_url': 'https://openai.com/applied'},
+            {'company': 'OpenAI',
+             'open_positions': 'Manager, AI Success Engineers',
+             'app_status': '',
+             'source_key': 'https://openai.com/careers'},
+        ]
+
+        display_rows = aggregate_display_rows(rows)
+
+        assert len(display_rows) == 1
+        assert display_rows[0]['open_positions'] == 'Forward Deployed Engineer; Manager, AI Success Engineers'
+        assert display_rows[0]['apply_url'] == 'https://openai.com/applied'
+
+
 class TestApplicationMerge:
     def test_app_status_merged(self, tmp_path):
         _write_target(tmp_path / 't.csv', [
@@ -193,6 +272,71 @@ class TestApplicationMerge:
         _write_apps(tmp_path / 'a.csv', [])
         views = build_active_views(tmp_path / 't.csv', tmp_path / 'a.csv', _cfg())
         assert views['best_fits'][0]['app_status'] == ''
+
+    def test_rejected_role_does_not_close_new_role_at_same_company(self, tmp_path):
+        _write_target(tmp_path / 't.csv', [
+            {'company': 'Anthropic',
+             'careers_url': 'https://www.anthropic.com/careers',
+             'role_url': 'https://job-boards.greenhouse.io/anthropic/jobs/4985877008',
+             'open_positions': 'Forward Deployed Engineer; Solutions Architect, Applied AI',
+             'validation_status': 'pass',
+             'llm_score': '94',
+             'lifecycle_state': 'active'},
+        ])
+        _write_apps(tmp_path / 'a.csv', [
+            {'company': 'Anthropic',
+             'role': 'Forward Deployed Engineer',
+             'job_url': 'https://job-boards.greenhouse.io/anthropic/jobs/4985877008?gh_src=LinkedIn',
+             'status': 'rejected'},
+        ])
+        views = build_active_views(tmp_path / 't.csv', tmp_path / 'a.csv', _cfg())
+        best_names = [r['company'] for r in views['best_fits']]
+        closed_roles = [r['open_positions'] for r in views['closed_out']]
+
+        assert 'Anthropic' in best_names
+        assert views['best_fits'][0]['open_positions'] == 'Solutions Architect, Applied AI'
+        assert 'Forward Deployed Engineer' in closed_roles
+
+    def test_applied_role_does_not_hide_other_open_roles_at_same_company(self, tmp_path):
+        _write_target(tmp_path / 't.csv', [
+            {'company': 'OpenAI',
+             'careers_url': 'https://openai.com/careers/search',
+             'role_url': 'https://openai.com/careers/forward-deployed-engineer-nyc/',
+             'open_positions': 'Forward Deployed Engineer; Solutions Engineer, Financial Services',
+             'validation_status': 'pass',
+             'llm_score': '95',
+             'lifecycle_state': 'active'},
+        ])
+        _write_apps(tmp_path / 'a.csv', [
+            {'company': 'OpenAI',
+             'role': 'Forward Deployed Engineer',
+             'job_url': 'https://openai.com/careers/forward-deployed-engineer-nyc/',
+             'status': 'applied'},
+        ])
+        views = build_active_views(tmp_path / 't.csv', tmp_path / 'a.csv', _cfg())
+        best_roles = [r['open_positions'] for r in views['best_fits']]
+        follow_roles = [r['open_positions'] for r in views['follow_up']]
+
+        assert 'Solutions Engineer, Financial Services' in best_roles
+        assert 'Forward Deployed Engineer' in follow_roles
+
+    def test_multi_role_row_does_not_reuse_specific_job_url_for_other_roles(self, tmp_path):
+        row = {k: '' for k in HEADER}
+        row.update({
+            'company': 'OpenAI',
+            'careers_url': 'https://www.linkedin.com/jobs/view/1234567890',
+            'role_url': 'https://openai.com/careers/forward-deployed-engineer-nyc/',
+            'open_positions': 'Forward Deployed Engineer; Accounting Manager',
+            'validation_status': 'pass',
+            'llm_score': '95',
+            'lifecycle_state': 'active',
+        })
+        opportunities = opportunities_from_targets([row])
+        by_role = {r['role_title']: r for r in opportunities}
+
+        assert by_role['Forward Deployed Engineer']['apply_url'] == 'https://openai.com/careers/forward-deployed-engineer-nyc/'
+        assert by_role['Accounting Manager']['apply_url'] == ''
+        assert by_role['Accounting Manager']['role_url'] == ''
 
 
 class TestStats:

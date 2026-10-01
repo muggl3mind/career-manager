@@ -48,7 +48,7 @@ Onboarding is a guided interview. Here's what you do vs. what Claude does:
 
 **Claude:**
 - Reads your resume and extracts your background
-- Derives 5-8 career paths from your experience and targets
+- Derives 4-5 career paths from your experience and targets
 - Generates all config files automatically:
   - `config.yaml` -- pipeline settings
   - `job-search/references/criteria.md` -- scoring rubric
@@ -57,7 +57,7 @@ Onboarding is a guided interview. Here's what you do vs. what Claude does:
 - Runs a smoke test to verify everything works
 - Hands off to the job search pipeline when ready
 
-> **Manual setup:** Onboarding is the only supported way to generate the reference files (`criteria.md`, `background-context.md`, `search-config.json`) — they are not shipped in the repo. Manual editing is for customizing them *after* onboarding has created them.
+> **Manual setup:** Onboarding is the recommended way to generate the personalized files. `criteria.md` and `background-context.md` are not shipped in the repo and are only created by onboarding. `search-config.json` ships as a neutral stub with `setup_required: true`; the pipeline will not run until it is personalized. To configure it by hand, copy `job-search/data/search-config.json.example` over `job-search/data/search-config.json`, replace the placeholder values, and set `setup_required` to `false`. Manual editing of the other files is for customizing them *after* onboarding has created them.
 
 ## How to Use
 
@@ -106,9 +106,9 @@ Wave 1 -- Parallel search agents
       +-- Funding sweep: find recently-funded companies
       +-- Careers check: classify each as active_role or watch_list
 
-Expansion prep -- Python generates secondary context from Wave 1 results
+Expansion prep -- Optional. Python generates secondary context from Wave 1 results only when --expand is passed
 
-Wave 2 -- Parallel expansion agents (paths with 3+ Wave 1 results)
+Wave 2 -- Optional parallel expansion agents (paths with 3+ Wave 1 results)
   +-- Uses Wave 1 top performers as seeds
   +-- Competitor mining: alternatives to seed companies
   +-- Investor portfolio mining: portfolio companies of seed investors
@@ -122,6 +122,10 @@ Phase 3 -- Generates ranked action list + dashboard
   +-- Run diff: alerts on score changes or removed high-scorers
   +-- Action list: ranked by score with priority tiers (HIGH/MED/LOW)
 ```
+
+The eval agent reads `job-search/data/pending-eval.json` for batches of 40 or fewer jobs. Larger batches are split into `pending-eval-shard-N.json` files so each eval agent can handle one shard.
+
+Known companies are rechecked through a monitor cadence gate. Recently verified companies are skipped by default for 7 days, while applied, interviewing, and offer-stage companies are always included. Unreachable `fetch_empty` checks stay retryable on the next run.
 
 ### End-to-end career workflow
 

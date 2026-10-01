@@ -23,6 +23,7 @@ CAREER_MGR = EVALS_DIR.parent
 JOB_SEARCH = CAREER_MGR / 'job-search'
 DATA = JOB_SEARCH / 'data'
 TARGET_CSV = DATA / 'target-companies.csv'
+OPPORTUNITIES_CSV = DATA / 'opportunities.csv'
 APPLICATIONS_CSV = CAREER_MGR / 'job-tracker' / 'data' / 'applications.csv'
 SEEN_COMPANIES = DATA / 'seen-companies.json'
 SEEN_JOBS = DATA / 'seen-jobs.json'
@@ -72,6 +73,7 @@ def check_files_exist() -> list[dict]:
     checks = []
     for path, label in [
         (TARGET_CSV, 'target-companies.csv'),
+        (OPPORTUNITIES_CSV, 'opportunities.csv'),
         (APPLICATIONS_CSV, 'applications.csv'),
         (SEEN_COMPANIES, 'seen-companies.json'),
     ]:
@@ -145,17 +147,23 @@ def check_freshness(seen: dict) -> list[dict]:
     return checks
 
 
-def check_applications(target_rows: list[dict], app_rows: list[dict]) -> list[dict]:
+def check_applications(opportunity_rows: list[dict], app_rows: list[dict]) -> list[dict]:
     checks = []
-    app_companies = {(r.get('company') or '').strip().lower() for r in app_rows}
-    pass_rows = [r for r in target_rows if r.get('validation_status') == 'pass']
-    not_applied = [r for r in pass_rows if (r.get('company') or '').strip().lower() not in app_companies]
+    app_pairs = {
+        ((r.get('company') or '').strip().lower(), (r.get('role') or '').strip().lower())
+        for r in app_rows
+    }
+    open_rows = [r for r in opportunity_rows if (r.get('opportunity_status') or '').strip() == 'open']
+    not_applied = [
+        r for r in open_rows
+        if ((r.get('company') or '').strip().lower(), (r.get('role_title') or '').strip().lower()) not in app_pairs
+    ]
 
     checks.append({
         'check': 'application_coverage',
         'status': 'info',
-        'detail': f'{len(pass_rows)} actionable targets, {len(app_rows)} applications, '
-                  f'{len(not_applied)} not yet applied',
+        'detail': f'{len(open_rows)} open opportunities, {len(app_rows)} applications, '
+                  f'{len(not_applied)} opportunity rows not yet applied',
     })
     return checks
 
@@ -282,6 +290,7 @@ def check_cache_size(seen: dict, seen_jobs: dict | list) -> list[dict]:
 
 def run_health_check(as_json: bool = False) -> int:
     target_rows = _read_csv(TARGET_CSV)
+    opportunity_rows = _read_csv(OPPORTUNITIES_CSV)
     app_rows = _read_csv(APPLICATIONS_CSV)
     seen = _load_json(SEEN_COMPANIES)
     seen_jobs = _load_json(SEEN_JOBS)
@@ -290,7 +299,7 @@ def run_health_check(as_json: bool = False) -> int:
     all_checks.extend(check_files_exist())
     all_checks.extend(check_target_counts(target_rows))
     all_checks.extend(check_freshness(seen))
-    all_checks.extend(check_applications(target_rows, app_rows))
+    all_checks.extend(check_applications(opportunity_rows, app_rows))
     all_checks.extend(check_score_distribution(target_rows))
     all_checks.extend(check_score_drift(target_rows))
     all_checks.extend(check_cross_file_consistency(target_rows, seen))

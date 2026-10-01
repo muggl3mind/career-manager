@@ -11,8 +11,12 @@ Two modes:
 
 Usage:
   python3 scripts/ops/web_prospecting.py export
+  python3 scripts/ops/web_prospecting.py export-expansion --expand
   python3 scripts/ops/web_prospecting.py merge
   python3 scripts/ops/web_prospecting.py merge --dry-run
+
+Wave-2 expansion export is opt-in: export-expansion is a no-op unless
+--expand is passed (expansion agents cost roughly 500K tokens per run).
 """
 
 from __future__ import annotations
@@ -36,8 +40,20 @@ sys.path.insert(0, str(BASE / 'scripts' / 'core'))
 sys.path.insert(0, str(BASE.parent / 'scripts'))
 from search_config_loader import load_search_config
 from csv_schema import HEADER
+from csv_io import write_csv_atomic
 from path_normalizer import normalize_path, normalize_company
 from company_dedup import find_existing, merge_into_existing
+from scoring import (
+    SCORING_INSTRUCTIONS,
+    LLM_SCORE_FIELD_DOC,
+    LLM_DIMENSIONS_EVALUATED_FIELD_DOC,
+)
+from flags import FLAG_SEPARATOR, add_flag, normalize_flags
+from merge_validation import (
+    add_needs_research_flag,
+    quarantine_row,
+    validate_self_report,
+)
 try:
     from config_loader import get as _pipeline_cfg
 except Exception:
@@ -88,9 +104,7 @@ def _validate_role_family(row: Dict, canonical_paths: list[str] | None = None) -
     if not role_family:
         return
     if role_family not in paths:
-        flags = row.get('llm_flags', '') or ''
-        if 'unknown_path' not in flags:
-            row['llm_flags'] = (flags + ',unknown_path').strip(',')
+        row['llm_flags'] = add_flag(row.get('llm_flags', ''), 'unknown_path')
 
 
 def _sync_xlsx() -> None:
@@ -111,11 +125,7 @@ def _read_csv(path: Path) -> List[Dict]:
 
 
 def _write_csv(path: Path, rows: List[Dict], header: List[str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open('w', newline='', encoding='utf-8') as f:
-        w = csv.DictWriter(f, fieldnames=header, extrasaction='ignore')
-        w.writeheader()
-        w.writerows(rows)
+    write_csv_atomic(path, rows, header)
 
 
 def _load_seen() -> Dict:
@@ -164,14 +174,14 @@ _RESULTS_SCHEMA = {
     'open_positions': 'Role title if found, empty string if none',
     'prospect_status': 'active_role OR watch_list',
     'fit_rationale': '2-3 sentences explaining why this company fits the profile',
-    'path': '1-8 matching criteria.md paths',
+    'path': '4-5 matching criteria.md paths',
     'path_name': 'e.g. AI Industry Startup',
     'notes': 'Any additional context, cold outreach angle, recent news',
     'role_url': 'Direct URL to the specific job posting (from Tavily Map). Empty string if not found.',
-    'llm_score': 'Integer 0-100: (yes dimensions / evaluated dimensions) * 100',
-    'llm_dimensions_evaluated': 'How many of 10 dimensions you could assess',
+    'llm_score': LLM_SCORE_FIELD_DOC,
+    'llm_dimensions_evaluated': LLM_DIMENSIONS_EVALUATED_FIELD_DOC,
     'llm_rationale': '1-2 sentence fit summary from criteria.md evaluation',
-    'llm_flags': 'Comma-separated: comp_unknown, growth_unknown, needs_research, etc.',
+    'llm_flags': 'Comma-separated (canonical separator, scripts/core/flags.py): comp_unknown, growth_unknown, needs_research, etc.',
     'queries_used': 'Array of search query strings actually executed for this path',
 }
 
@@ -203,10 +213,10 @@ def _validate_watch_list(result: Dict) -> Dict:
 
     if not reason or reason not in VALID_WATCH_REASONS:
         print(f"  WARN: watch_list result for {result.get('company', '?')} has invalid watch_reason: '{reason}'")
-        flags = (flags + ',unvalidated_watch_list').strip(',')
+        flags = add_flag(flags, 'unvalidated_watch_list')
     elif not evidence:
         print(f"  WARN: watch_list result for {result.get('company', '?')} has empty watch_evidence")
-        flags = (flags + ',unvalidated_watch_list').strip(',')
+        flags = add_flag(flags, 'unvalidated_watch_list')
     else:
         # Valid: append reason and evidence to notes
         notes = result.get('notes', '') or ''
@@ -214,10 +224,49 @@ def _validate_watch_list(result: Dict) -> Dict:
         result['notes'] = notes
 
     if reason == 'unable_to_verify':
-        flags = (flags + ',needs_recheck').strip(',')
+        flags = add_flag(flags, 'needs_recheck')
 
     result['llm_flags'] = flags
     return result
+
+
+def _hard_pass_skip_entries(data_dir: Path) -> set:
+    """Names/websites of companies hard-passed by the eval pipeline.
+
+    Prospecting agents must never re-surface them (finding H4), so they
+    always belong on the skip list. seen-jobs.json is the durable source:
+    raw-discovery.csv also gets hard-pass rows from apply_eval_results.py,
+    but discovery_pipeline.py rewrites that file from scratch every run,
+    so anything read from it only survives until the next discovery.
+    """
+    entries: set = set()
+    seen_path = data_dir / 'seen-jobs.json'
+    if seen_path.exists():
+        try:
+            with seen_path.open(encoding='utf-8') as f:
+                seen = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            seen = {}
+        for ev in seen.values():
+            if str(ev.get('llm_hard_pass', '')).strip().lower() != 'true':
+                continue
+            name = normalize_company((ev.get('company') or '').strip()).lower()
+            if name:
+                entries.add(name)
+    for row in _read_csv(data_dir / 'raw-discovery.csv'):
+        is_hard_pass = (
+            str(row.get('llm_hard_pass', '')).strip().lower() == 'true'
+            or row.get('exclusion_reason') == 'llm_hard_pass'
+        )
+        if not is_hard_pass:
+            continue
+        name = normalize_company((row.get('company') or '').strip()).lower()
+        site = (row.get('website') or '').strip().lower()
+        if name:
+            entries.add(name)
+        if site:
+            entries.add(site)
+    return entries
 
 
 def cmd_export_perpath(
@@ -235,6 +284,7 @@ def cmd_export_perpath(
 
     query_packs = cfg.get('query_packs', {})
     path_check_instructions = cfg.get('path_check_instructions', {})
+    search_locations = cfg.get('search_locations') or ['United States']
 
     now = datetime.now(timezone.utc)
     stale_cutoff = now - timedelta(days=7)
@@ -280,6 +330,9 @@ def cmd_export_perpath(
             if site:
                 skip_companies.add(site)
 
+    # Hard-passed companies are skipped unconditionally (finding H4).
+    skip_companies |= _hard_pass_skip_entries(data_dir)
+
     # Build a description lookup from path_check_instructions
     # Keys in path_check_instructions are 1-indexed string numbers
     pack_keys = list(query_packs.keys())
@@ -315,6 +368,7 @@ def cmd_export_perpath(
             'path_description': path_desc,
             'discover_min_score': _DISCOVER_MIN_SCORE,
             'per_agent_query_budget': _PER_AGENT_QUERY_BUDGET,
+            'search_locations': search_locations,
             'suggested_queries': _suggested_queries(path_label),
             'known_companies_skip': sorted(skip_companies),
             'known_companies_recheck': [
@@ -325,21 +379,40 @@ def cmd_export_perpath(
             'instructions': (
                 f'You are searching for companies matching the "{path_label}" career path.\n'
                 f'{path_desc}\n\n'
-                'Follow this 4-step research protocol:\n'
-                '1. MARKET MAPPING: Find prominent companies in this space using broad industry searches.\n'
-                '2. COMPETITOR EXPANSION: For the most promising companies, search for their competitors and alternatives.\n'
-                '3. FUNDING SWEEP: Search for companies in this space that received recent funding (last 12 months).\n'
-                '4. CAREERS CHECK: For each candidate company, check their careers page for relevant open roles.\n\n'
+                'MANDATORY SEARCH PROTOCOL:\n'
+                'You MUST execute EVERY query listed in suggested_queries before concluding your search.\n'
+                'For each query: run the search, review results, evaluate candidates against the rubric.\n'
+                'After completing all suggested queries, use any remaining budget for follow-up searches\n'
+                '(competitor expansion, funding sweeps, careers page checks).\n\n'
+                'For each candidate company found:\n'
+                '1. Check their careers page for relevant open roles. ATS-API FIRST: if the\n'
+                '   board is Ashby/Lever/Greenhouse, fetch the JSON API, not the HTML page\n'
+                '   (api.ashbyhq.com/posting-api/job-board/{org}, api.lever.co/v0/postings/{org}?mode=json,\n'
+                '   boards-api.greenhouse.io/v1/boards/{org}/jobs). HTML fetches of JS-rendered\n'
+                '   boards return partial or empty listings and produce false negatives.\n'
+                '2. Score against the rubric.\n'
+                '3. Classify as active_role or watch_list. A NEGATIVE verdict (watch_list for\n'
+                '   no_matching_roles / no_careers_page / unable_to_verify) requires TWO independent\n'
+                '   negative sources: the careers board AND one role-title web search\n'
+                '   ("[company] forward deployed OR implementation OR solutions job"). One failed\n'
+                '   fetch is not evidence of absence.\n\n'
                 'Budget and quality rules:\n'
                 f'- Maximum {_PER_AGENT_QUERY_BUDGET} web searches total.\n'
-                f'- Return ONLY companies that score >= {_DISCOVER_MIN_SCORE} on the rubric. There is NO minimum count.\n'
-                '- If nothing meets the threshold after your searches, return an empty results array. DO NOT stretch to hit a quota.\n'
+                f'- You MUST use at least {min(_PER_AGENT_QUERY_BUDGET, len(_suggested_queries(path_label)))} of your budget on the suggested queries.\n'
+                f'- Report companies scoring >= {_DISCOVER_MIN_SCORE} as normal results. There is NO minimum count.\n'
+                f'- Companies scoring 60-{_DISCOVER_MIN_SCORE - 1} are near-misses: return them as prospect_status\n'
+                '  watch_list with "below_threshold" added to llm_flags so the monitor re-checks them\n'
+                '  later instead of losing them forever. Do not return companies below 60.\n'
+                '- Path-relevant companies where fewer than 5 rubric dimensions are verifiable are\n'
+                '  NOT discarded: return them as watch_list with watch_reason unable_to_verify and\n'
+                '  llm_flags "needs_research" (omit llm_score).\n'
+                '- If nothing qualifies after all suggested queries, return an empty results array.\n'
                 '- Skip companies in known_companies_skip.\n'
                 '- Re-check companies in known_companies_recheck if present.\n'
-                '- known_companies are already tracked — focus searches on companies not in that list.\n\n'
-                'SCORING: For each candidate, evaluate against references/criteria.md rubric:\n'
-                '- 10 dimensions, each scored 0-10. Total = sum (0-100).\n'
-                '- If fewer than 5 dimensions are assessable, set llm_flags to "needs_research" and skip scoring.\n'
+                '- known_companies are already tracked — focus searches on companies not in that list.\n'
+                '- Only report companies with roles available in the locations listed in search_locations\n'
+                '  (Remote within those countries counts). Location mismatches are watch_list, never active_role.\n\n'
+                + SCORING_INSTRUCTIONS +
                 '- Include llm_score, llm_dimensions_evaluated, llm_rationale, role_family, llm_flags, queries_used in each result.\n'
                 f'Write results to data/prospecting-results-{pack_key}.json using the wrapper format (_meta + results).'
             ),
@@ -349,7 +422,7 @@ def cmd_export_perpath(
         out_path = data_dir / f'prospecting-context-{pack_key}.json'
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with out_path.open('w', encoding='utf-8') as f:
-            json.dump(context, f, indent=2, ensure_ascii=False)
+            json.dump(context, f, ensure_ascii=False)
         files_written.append(out_path)
 
     print(f"[web_prospecting] per-path export done")
@@ -392,26 +465,66 @@ def _do_merge(results: List[Dict], data_dir: Path, dry_run: bool = False) -> int
     existing_keys = {normalize_company(row.get('company', '')).lower() for row in existing_rows}
 
     updated_existing = 0
+    quarantined = 0
     for r in results:
+        # Merge-time validation (finding C2): a self-reported llm_score must
+        # be a real ratio value consistent with llm_dimensions_evaluated.
+        # Invalid self-reports go to <data>/quarantine, never into the CSV.
+        verdict = validate_self_report(
+            r.get('llm_score'),
+            r.get('llm_dimensions_evaluated'),
+            r.get('scores'),
+        )
+        if not verdict.ok:
+            qpath = quarantine_row(
+                data_dir, 'web_prospecting', verdict.reason, r, verdict.detail,
+            )
+            print(f"  [quarantine] {r.get('company', '?')}: {verdict.reason} ({verdict.detail}) -> {qpath}")
+            quarantined += 1
+            continue
+        if verdict.detail:
+            print(f"  [merge_validation] {r.get('company', '?')}: {verdict.detail}")
+        if verdict.needs_research:
+            r['llm_score'] = ''
+            r['llm_flags'] = add_needs_research_flag(r.get('llm_flags', ''), separator=FLAG_SEPARATOR)
+        elif verdict.score is not None:
+            # Recomputed/validated canonical score always wins.
+            r['llm_score'] = verdict.score
+        # Persist confidence (finding M9): the validated evaluated-dimension
+        # count travels with the score instead of being thrown away.
+        if verdict.dimensions_evaluated is not None:
+            r['llm_dimensions_evaluated'] = verdict.dimensions_evaluated
+
+        # '' means "not scored"; 0 is an honest zero score (finding H2).
+        scored = r.get('llm_score') not in (None, '')
+
         company = normalize_company((r.get('company') or '').strip())
         website = (r.get('website') or '').strip().lower()
         name_key = company.lower()
 
         match = find_existing(company, existing_rows)
         if match:
-            # Merge new data into existing row
+            # Merge new data into existing row.
+            # Normalize role_family BEFORE it flows into merge_into_existing
+            # so a truthy-but-generic value ("Solutions Architect") never
+            # overwrites an existing canonical path label.
+            _merged_role_family = normalize_path(
+                r.get('path_name', '') or r.get('llm_path_name', '') or r.get('role_family', ''),
+                _CANONICAL_PATHS,
+            )
             merge_data = {
                 'open_positions': (r.get('open_positions') or '').strip(),
                 'llm_score': str(r.get('llm_score', '')) if r.get('llm_score') is not None else '',
+                'llm_dimensions_evaluated': str(r.get('llm_dimensions_evaluated', '')) if r.get('llm_dimensions_evaluated') not in (None, '') else '',
                 'llm_rationale': r.get('llm_rationale', '') or r.get('fit_rationale', ''),
-                'llm_flags': r.get('llm_flags', ''),
+                'llm_flags': normalize_flags(r.get('llm_flags', '')),
                 'role_url': r.get('role_url', ''),
-                'role_family': r.get('role_family', '') or r.get('llm_path_name', '') or r.get('path_name', ''),
+                'role_family': _merged_role_family,
                 'website': r.get('website', ''),
                 'careers_url': r.get('careers_url', ''),
                 'last_checked': today,
             }
-            if r.get('llm_score'):
+            if scored:
                 merge_data['llm_evaluated_at'] = now_ts
             merge_into_existing(match, merge_data)
             # Promote watch_list to pass if new active roles found
@@ -452,17 +565,18 @@ def _do_merge(results: List[Dict], data_dir: Path, dry_run: bool = False) -> int
             'open_positions': open_positions,
             'last_checked': today,
             'notes': r.get('notes', '') + f' | source=web_prospecting | status={prospect_status}',
-            'role_family': r.get('role_family', '') or r.get('llm_path_name', '') or r.get('path_name', ''),
+            'role_family': r.get('path_name', '') or r.get('llm_path_name', '') or r.get('role_family', ''),
             'source': 'web_prospecting',
             'location_detected': '',
             'validation_status': validation_status,
             'exclusion_reason': '',
             'llm_score': str(r.get('llm_score', '')) if r.get('llm_score') is not None else '',
+            'llm_dimensions_evaluated': str(r.get('llm_dimensions_evaluated', '')) if r.get('llm_dimensions_evaluated') not in (None, '') else '',
             'llm_rationale': r.get('llm_rationale', '') or r.get('fit_rationale', ''),
-            'llm_flags': r.get('llm_flags', ''),
+            'llm_flags': normalize_flags(r.get('llm_flags', '')),
             'llm_hard_pass': 'false',
             'llm_hard_pass_reason': '',
-            'llm_evaluated_at': now_ts if r.get('llm_score') else '',
+            'llm_evaluated_at': now_ts if scored else '',
             # Prospecting hits with active_role start ACTIVE; watch_list starts WATCHING
             # with count=0 (one run of grace before they archive).
             'lifecycle_state': 'active' if prospect_status == 'active_role' else 'watching',
@@ -511,6 +625,7 @@ def _do_merge(results: List[Dict], data_dir: Path, dry_run: bool = False) -> int
     print(f"    watch list:   {watch_list_count}")
     print(f"  updated existing (new roles found): {updated_existing}")
     print(f"  skipped (already known, no new roles): {skipped - updated_existing}")
+    print(f"  quarantined (invalid self-report): {quarantined}")
     print(f"  total in target-companies.csv: {len(final_rows)}")
 
     # Normalize company names and paths before writing
@@ -616,8 +731,14 @@ def cmd_merge_multifile(data_dir: Path | None = None, dry_run: bool = False) -> 
             if new_roles and new_roles.lower() not in (old_roles or '').lower():
                 existing['open_positions'] = (old_roles + '; ' + new_roles).strip('; ')
 
-            # Keep higher score entry's fields
-            if new_score > old_score:
+            # Keep higher score entry's fields. On score ties, an
+            # active_role verdict outranks watch_list: one agent verifying
+            # a live role must not lose to another path's watch verdict
+            # just because its file loads earlier alphabetically.
+            old_active = existing.get('prospect_status') == 'active_role'
+            new_active = r.get('prospect_status') == 'active_role'
+            if new_score > old_score or (
+                    new_score == old_score and new_active and not old_active):
                 for field in ('llm_score', 'llm_rationale', 'llm_flags',
                               'role_family', 'path_name', 'website',
                               'careers_url', 'prospect_status',
@@ -626,6 +747,10 @@ def cmd_merge_multifile(data_dir: Path | None = None, dry_run: bool = False) -> 
                               'watch_reason', 'watch_evidence'):
                     if r.get(field):
                         existing[field] = r[field]
+                if new_active:
+                    # stale watch metadata must not survive an active verdict
+                    existing.pop('watch_reason', None)
+                    existing.pop('watch_evidence', None)
         else:
             deduped[key] = dict(r)  # copy to avoid mutation
             deduped[key]['company'] = company  # normalized
@@ -685,13 +810,21 @@ def _save_expansion_history(data_dir: Path, history: Dict) -> None:
 def cmd_export_expansion(
     data_dir: Path | None = None,
     config_path: Path | None = None,
+    expand: bool = False,
 ) -> int:
     """Export expansion context files for pass 2, seeded from pass 1 results.
+
+    Opt-in: does nothing unless expand=True (CLI: --expand), because the
+    Wave-2 expansion agents cost roughly 500K tokens per run.
 
     For each career path with >= 3 pass 1 results, writes a
     prospecting-context-{path_key}-expansion.json with a 3-step protocol
     (competitor mining, investor portfolio mining, community/list mining).
     """
+    if not expand:
+        print("[web_prospecting] expansion export is opt-in; pass --expand to generate Wave-2 contexts (~500K tokens/run)")
+        return 0
+
     data_dir = data_dir or DATA
     config_path = config_path or (data_dir / 'search-config.json')
 
@@ -701,9 +834,9 @@ def cmd_export_expansion(
         return 1
 
     query_packs = cfg.get('query_packs', {})
+    search_locations = cfg.get('search_locations') or ['United States']
 
     now = datetime.now(timezone.utc)
-    stale_cutoff = now - timedelta(days=7)
 
     # Load seen companies
     seen_path = data_dir / 'seen-companies.json'
@@ -716,25 +849,29 @@ def cmd_export_expansion(
     target_csv = data_dir / 'target-companies.csv'
     existing_rows = _read_csv(target_csv)
 
-    # Build base skip list (same logic as cmd_export_perpath)
+    # Build base skip list. The expansion pass hunts for NEW companies,
+    # so every already-known company is skipped regardless of how stale
+    # its last check is (staleness re-checks belong to the pass 1 /
+    # monitor flows, finding H4: previously stale and hard-passed
+    # companies could resurrect through this list).
     base_skip: set[str] = set()
 
     for key, entry in seen.items():
-        last_checked_str = entry.get('last_checked') or entry.get('first_seen', '')
-        last_checked_dt = _parse_timestamp(last_checked_str)
-        if last_checked_dt and last_checked_dt > stale_cutoff:
-            base_skip.add(key.lower())
+        base_skip.add(key.lower())
+        site = (entry.get('website') or '').strip().lower()
+        if site:
+            base_skip.add(site)
 
     for row in existing_rows:
         name = (row.get('company') or '').strip().lower()
         site = (row.get('website') or '').strip().lower()
-        lc = row.get('last_checked', '')
-        lc_dt = _parse_timestamp(lc)
-        if lc_dt and lc_dt > stale_cutoff:
-            if name:
-                base_skip.add(name)
-            if site:
-                base_skip.add(site)
+        if name:
+            base_skip.add(name)
+        if site:
+            base_skip.add(site)
+
+    # Hard-passed companies are skipped unconditionally (finding H4).
+    base_skip |= _hard_pass_skip_entries(data_dir)
 
     expansion_history = _load_expansion_history(data_dir)
 
@@ -849,7 +986,9 @@ def cmd_export_expansion(
         instructions = (
             f'EXPANSION PASS for "{path_label}" career path.\n'
             f'Seed companies from pass 1: {seed_names}\n\n'
-            'Follow this 3-step expansion protocol:\n\n'
+            'MANDATORY SEARCH PROTOCOL:\n'
+            'You MUST execute EVERY query listed in suggested_queries before concluding.\n'
+            'Then use remaining budget for the 3-step expansion protocol below.\n\n'
             '1. COMPETITOR MINING: For each seed company, search "[company] competitors" '
             'and "[company] alternatives".\n\n'
             '2. INVESTOR PORTFOLIO MINING: For seeds with known funding, search '
@@ -860,11 +999,19 @@ def cmd_export_expansion(
             '"[industry] company directory").\n\n'
             'Budget and quality rules:\n'
             f'- Maximum {_PER_AGENT_QUERY_BUDGET} web searches total.\n'
-            f'- Return ONLY companies that score >= {_DISCOVER_MIN_SCORE} on the rubric. There is NO minimum count.\n'
-            '- If nothing meets the threshold, return an empty results array. DO NOT force findings to hit a quota.\n'
+            f'- Report companies scoring >= {_DISCOVER_MIN_SCORE} as normal results. There is NO minimum count.\n'
+            f'- Companies scoring 60-{_DISCOVER_MIN_SCORE - 1} are near-misses: return them as prospect_status\n'
+            '  watch_list with "below_threshold" added to llm_flags. Do not return companies below 60.\n'
+            '- Path-relevant companies where fewer than 5 rubric dimensions are verifiable: return as\n'
+            '  watch_list with watch_reason unable_to_verify and llm_flags "needs_research" (omit llm_score).\n'
+            '- If nothing qualifies after all queries, return an empty results array.\n'
             '- Skip companies in known_companies_skip.\n'
-            '- Check careers page for each candidate company.\n\n'
-            'SCORING: Same rubric as pass 1. Evaluate against references/criteria.md.\n'
+            '- Check careers page for each candidate company. ATS-API FIRST for Ashby/Lever/Greenhouse\n'
+            '  boards (JSON API, not HTML). A negative verdict requires two independent negative\n'
+            '  sources: the board AND one role-title web search.\n'
+            '- Only report companies with roles available in the locations listed in search_locations\n'
+            '  (Remote within those countries counts). Location mismatches are watch_list, never active_role.\n\n'
+            + SCORING_INSTRUCTIONS +
             f'Write results to data/prospecting-results-{pack_key}-expansion.json using the wrapper format (_meta + results).'
         )
 
@@ -874,6 +1021,7 @@ def cmd_export_expansion(
             'pass': 'expansion',
             'discover_min_score': _DISCOVER_MIN_SCORE,
             'per_agent_query_budget': _PER_AGENT_QUERY_BUDGET,
+            'search_locations': search_locations,
             'suggested_queries': _suggested_queries(path_label),
             'seed_companies': seed_companies,
             'known_companies_skip': sorted(skip),
@@ -884,7 +1032,7 @@ def cmd_export_expansion(
         out_path = data_dir / f'prospecting-context-{pack_key}-expansion.json'
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with out_path.open('w', encoding='utf-8') as f:
-            json.dump(context, f, indent=2, ensure_ascii=False)
+            json.dump(context, f, ensure_ascii=False)
         files_written.append(out_path)
 
     _save_expansion_history(data_dir, expansion_history)
@@ -900,12 +1048,14 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('mode', choices=['export', 'export-expansion', 'merge'])
     ap.add_argument('--dry-run', action='store_true')
+    ap.add_argument('--expand', action='store_true',
+                    help='Opt in to the Wave-2 expansion export (~500K tokens/run)')
     args = ap.parse_args()
 
     if args.mode == 'export':
         return cmd_export()
     if args.mode == 'export-expansion':
-        return cmd_export_expansion()
+        return cmd_export_expansion(expand=args.expand)
     return cmd_merge(dry_run=args.dry_run)
 
 

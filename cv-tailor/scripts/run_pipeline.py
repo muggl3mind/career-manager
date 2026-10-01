@@ -31,11 +31,12 @@ from docx.shared import Pt
 
 # Direct imports — no subprocess
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from build_analysis import build as build_analysis_context, PENDING_PATH, ANALYSIS_PATH
+from build_analysis import build as build_analysis_context, _load_user_profile, PENDING_PATH, ANALYSIS_PATH
 from validate_analysis import validate as validate_analysis
+from claims_gate import check_claims
 from docx_safe_patch import apply_safe_patch
 from generate_redline import generate as generate_redline
-from quality_gate import qc as run_quality_gate
+from quality_gate import qc as run_quality_gate, qc_cover_letter
 from index_store import rebuild_registry, CV_BASE
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -145,7 +146,9 @@ def cmd_apply(company: str, role: str) -> dict:
 
     analysis = json.loads(ANALYSIS_PATH.read_text(encoding='utf-8'))
 
-    errs = validate_analysis(analysis)
+    errs, warns = validate_analysis(analysis)
+    for w in warns:
+        print(f'[validate] WARNING: {w}')
     if errs:
         print('ERROR: analysis.json failed validation:')
         for e in errs:
@@ -155,6 +158,20 @@ def cmd_apply(company: str, role: str) -> dict:
     base = Path(analysis.get('base_resume_path', ''))
     if not base.exists():
         print(f'ERROR: base resume from analysis.json missing: {base}')
+        sys.exit(1)
+
+    # Mandatory deterministic claims gate: every number, credential, employer,
+    # and date in the applied edits and the cover letter must already exist in
+    # the base CV or the user profile. Invented claims stop the run before any
+    # artifact is generated. analysis.json is kept so the failure is debuggable.
+    base_text = _read_doc_text(base)
+    user_profile = _load_user_profile()
+    claims_result = check_claims(analysis, base_text, user_profile)
+    if claims_result['status'] != 'pass':
+        print('ERROR: claims gate failed. The output makes claims not present in the base CV or user profile:')
+        for v in claims_result['violations']:
+            print(f"  - {v['message']}")
+        print(f'[claims_gate] Keeping {ANALYSIS_PATH} for debugging. Fix the edits and re-run --phase apply.')
         sys.exit(1)
 
     company_dir = CV_BASE / company
@@ -171,7 +188,12 @@ def cmd_apply(company: str, role: str) -> dict:
     manifest_path = company_dir / f'Manifest_{rc}_{date_str}_{vs}.json'
     receipt_path = company_dir / f'Changes_Applied_{rc}_{date_str}_{vs}.txt'
 
-    edits = analysis.get('summary_edits', []) + analysis.get('bullet_edits', [])
+    edits = (
+        analysis.get('summary_edits', []) +
+        analysis.get('bullet_edits', []) +
+        analysis.get('tailored_edits', []) +
+        analysis.get('shared_edits', [])
+    )
 
     patch_result = apply_safe_patch(base, resume_path, edits)
     _write_change_receipt(receipt_path, edits, patch_result)
@@ -181,7 +203,14 @@ def cmd_apply(company: str, role: str) -> dict:
     generate_redline(str(base), str(ANALYSIS_PATH), str(redline_path))
 
     qc_result = run_quality_gate(str(resume_path), str(redline_path))
-    qc_path.write_text(json.dumps(qc_result, indent=2))
+    cover_qc = qc_cover_letter(str(cover_path))
+    qc_payload = {
+        'status': 'pass' if (qc_result.get('status') == 'pass' and cover_qc.get('status') == 'pass') else 'fail',
+        'resume': qc_result,
+        'cover_letter': cover_qc,
+        'claims_gate': claims_result,
+    }
+    qc_path.write_text(json.dumps(qc_payload, indent=2))
 
     resume_text = _read_doc_text(resume_path)
     verified = []
@@ -202,6 +231,8 @@ def cmd_apply(company: str, role: str) -> dict:
     fail_reasons = []
     if qc_result.get('status') != 'pass':
         fail_reasons.append('qc_failed')
+    if cover_qc.get('status') != 'pass':
+        fail_reasons.append('cover_letter_qc_failed')
     if patch_result.get('changed_count', 0) < min_required:
         fail_reasons.append(f"edit_count_below_threshold:{patch_result.get('changed_count', 0)}<{min_required}")
     if verified_count < min_required:
@@ -224,15 +255,21 @@ def cmd_apply(company: str, role: str) -> dict:
             'changes_receipt': str(receipt_path),
         },
         'qc': qc_result,
+        'cover_letter_qc': cover_qc,
+        'claims_gate': claims_result,
         'verification': verified,
         'fail_reasons': fail_reasons,
     }
     manifest_path.write_text(json.dumps(manifest, indent=2))
 
-    # Clean up working files
-    for p in (ANALYSIS_PATH, PENDING_PATH):
-        if p.exists():
-            p.unlink()
+    # Clean up working files only on success. Failed runs keep analysis.json
+    # (and pending-analysis.json) so the failure can be debugged.
+    if not fail_reasons:
+        for p in (ANALYSIS_PATH, PENDING_PATH):
+            if p.exists():
+                p.unlink()
+    else:
+        print(f"[pipeline] Run failed ({', '.join(fail_reasons)}). Keeping {ANALYSIS_PATH} for debugging.")
 
     rebuild_registry(CV_BASE)
     return manifest

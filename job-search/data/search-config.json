@@ -1,0 +1,40 @@
+{
+  "_instructions": [
+    "SETUP REQUIRED: this file ships as a neutral stub and contains no real search profile.",
+    "Recommended: run the onboarding skill to generate a personalized search-config.json.",
+    "Manual: copy job-search/data/search-config.json.example over this file, replace the placeholders, and set setup_required to false.",
+    "The job-search pipeline will refuse to run while setup_required is true."
+  ],
+  "setup_required": true,
+  "search_locations": ["United States"],
+  "query_packs": {},
+  "role_include_patterns": [],
+  "role_exclude_patterns": [],
+  "employer_exclude_patterns": [],
+  "agency_patterns": [],
+  "location_exclude_patterns": [],
+  "role_rescue_keywords": [],
+  "keywords": {
+    "domain": [],
+    "ai": [],
+    "tech": []
+  },
+  "path_check_instructions": {},
+  "role_patterns": [],
+  "scoring": {
+    "domain_keywords": {},
+    "ai_keywords": {},
+    "role_keywords": {},
+    "comp_indicators": {},
+    "growth_indicators": {},
+    "culture_keywords": {
+      "remote_flexible": [],
+      "innovation": [],
+      "technical": [],
+      "aspirational": []
+    }
+  },
+  "path_aliases": {},
+  "display_groups": {},
+  "company_aliases": {}
+}

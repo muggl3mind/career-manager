@@ -15,8 +15,12 @@ Direct usage:
 from __future__ import annotations
 
 import csv
+import sys
 from pathlib import Path
 from typing import List
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from csv_io import write_csv_rows_atomic
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side, GradientFill
@@ -168,9 +172,7 @@ def xlsx_to_csv() -> None:
     if not rows:
         raise RuntimeError('target-companies.xlsx has no rows')
 
-    with CSV_PATH.open('w', newline='', encoding='utf-8') as f:
-        w = csv.writer(f)
-        w.writerows(rows)
+    write_csv_rows_atomic(CSV_PATH, rows)
 
 
 if __name__ == '__main__':

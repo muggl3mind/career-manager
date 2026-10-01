@@ -22,6 +22,7 @@ CAREER_MGR = EVALS_DIR.parent
 JOB_SEARCH = CAREER_MGR / 'job-search'
 DATA = JOB_SEARCH / 'data'
 TARGET_CSV = DATA / 'target-companies.csv'
+OPPORTUNITIES_CSV = DATA / 'opportunities.csv'
 ACTION_CSV = DATA / 'action-list.csv'
 SEEN_COMPANIES = DATA / 'seen-companies.json'
 SEEN_JOBS = DATA / 'seen-jobs.json'
@@ -47,6 +48,7 @@ def check_output_files_exist() -> list[dict]:
     checks = []
     for path, label, required in [
         (TARGET_CSV, 'target-companies.csv', True),
+        (OPPORTUNITIES_CSV, 'opportunities.csv', True),
         (ACTION_CSV, 'action-list.csv', True),
         (SEEN_COMPANIES, 'seen-companies.json', True),
         (SEEN_JOBS, 'seen-jobs.json', False),
@@ -91,34 +93,40 @@ def check_completeness(target_rows: list[dict]) -> list[dict]:
     return checks
 
 
-def check_action_list_matches_targets(target_rows: list[dict], action_rows: list[dict]) -> list[dict]:
-    """Action list should contain exactly the pass-status targets."""
+def check_action_list_matches_opportunities(opportunity_rows: list[dict], action_rows: list[dict]) -> list[dict]:
+    """Action list rows should come from open opportunity rows, not raw company rows."""
     checks = []
-    pass_companies = {(r.get('company') or '').strip().lower()
-                      for r in target_rows if r.get('validation_status') == 'pass'}
-    action_companies = {(r.get('company') or '').strip().lower() for r in action_rows}
+    open_pairs = {
+        ((r.get('company') or '').strip().lower(), (r.get('role_title') or '').strip().lower())
+        for r in opportunity_rows
+        if (r.get('opportunity_status') or '').strip() == 'open'
+    }
+    action_pairs = set()
+    for row in action_rows:
+        company = (row.get('company') or '').strip().lower()
+        roles = [
+            part.strip().lower()
+            for part in (row.get('role') or '').split(';')
+            if part.strip()
+        ]
+        if not roles:
+            action_pairs.add((company, ''))
+            continue
+        for role in roles:
+            action_pairs.add((company, role))
+    in_action_not_opportunity = action_pairs - open_pairs
 
-    in_target_not_action = pass_companies - action_companies
-    in_action_not_target = action_companies - pass_companies
-
-    if in_target_not_action:
-        checks.append({
-            'check': 'action_list_missing',
-            'status': 'warn',
-            'detail': f'{len(in_target_not_action)} pass-status companies missing from action list: '
-                      + ', '.join(sorted(in_target_not_action)[:5]),
-        })
-    if in_action_not_target:
+    if in_action_not_opportunity:
         checks.append({
             'check': 'action_list_extra',
             'status': 'warn',
-            'detail': f'{len(in_action_not_target)} companies in action list but not pass-status in targets',
+            'detail': f'{len(in_action_not_opportunity)} action rows do not match open opportunities',
         })
-    if not in_target_not_action and not in_action_not_target:
+    else:
         checks.append({
             'check': 'action_list_sync',
             'status': 'pass',
-            'detail': f'Action list matches target-companies pass set ({len(pass_companies)} companies)',
+            'detail': f'Action list rows all match open opportunities ({len(action_rows)} rows)',
         })
     return checks
 
@@ -215,12 +223,13 @@ def check_duplicate_companies(target_rows: list[dict]) -> list[dict]:
 
 def run_runtime_verify(as_json: bool = False) -> int:
     target_rows = _read_csv(TARGET_CSV)
+    opportunity_rows = _read_csv(OPPORTUNITIES_CSV)
     action_rows = _read_csv(ACTION_CSV)
 
     all_checks = []
     all_checks.extend(check_output_files_exist())
     all_checks.extend(check_completeness(target_rows))
-    all_checks.extend(check_action_list_matches_targets(target_rows, action_rows))
+    all_checks.extend(check_action_list_matches_opportunities(opportunity_rows, action_rows))
     all_checks.extend(check_score_integrity(target_rows))
     all_checks.extend(check_no_working_files())
     all_checks.extend(check_duplicate_companies(target_rows))

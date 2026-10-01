@@ -129,7 +129,7 @@ class TestExpansionContextCarriesThresholds:
         cfg_path = self._setup_pass1(tmp_path)
 
         from web_prospecting import cmd_export_expansion
-        cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path)
+        cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path, expand=True)
 
         ctx = json.loads((tmp_path / "prospecting-context-path_a-expansion.json").read_text())
         assert 'discover_min_score' in ctx
@@ -139,7 +139,7 @@ class TestExpansionContextCarriesThresholds:
         cfg_path = self._setup_pass1(tmp_path)
 
         from web_prospecting import cmd_export_expansion
-        cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path)
+        cmd_export_expansion(data_dir=tmp_path, config_path=cfg_path, expand=True)
 
         ctx = json.loads((tmp_path / "prospecting-context-path_a-expansion.json").read_text())
         instructions = ctx['instructions'].lower()
@@ -165,7 +165,7 @@ class TestSuggestedQueries:
         assert all('Path A' in q for q in ctx['suggested_queries'])
 
     def test_suggested_queries_use_path_label_domain_agnostic(self, tmp_path):
-        """Generator must work for any domain, not bake in finance/AI assumptions."""
+        """Generator must work for any domain, not bake in terms from any specific industry."""
         packs = {"healthcare_ai": {"label": "Healthcare AI", "queries": ["q"], "locations": ["US"]}}
         cfg_path = _write_search_config(tmp_path, packs)
         _write_targets(tmp_path)
@@ -177,8 +177,8 @@ class TestSuggestedQueries:
         ctx = json.loads((tmp_path / "prospecting-context-healthcare_ai.json").read_text())
         joined = ' '.join(ctx['suggested_queries'])
         assert 'Healthcare AI' in joined
-        # Should NOT contain finance-specific leakage
-        for term in ['domain operations', 'accounting', 'CPA', 'Big 4', 'PE fund']:
+        # Should NOT contain hardcoded terms from unrelated industries
+        for term in ['logistics', 'fintech', 'cybersecurity', 'ad tech', 'agritech']:
             assert term not in joined, f"Found hardcoded domain term: {term}"
 
 

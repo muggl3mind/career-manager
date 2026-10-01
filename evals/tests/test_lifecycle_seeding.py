@@ -147,11 +147,12 @@ class TestEvalMergeSeedsLifecycle:
             "actual_company": None,
             "path": "path_a",
             "path_name": "Path Alpha",
-            "scores": {"background_asset": 7, "ai_central": 8, "can_influence": 7,
-                       "non_traditional_welcome": 7, "comp_200k_path": 8,
-                       "growth_path": 8, "funding_supports_comp": 8,
-                       "problems_exciting": 8, "culture_public_voice": 7,
-                       "global_leverage": 7},
+            # Ratio spec: yes/no/unknown only (1/0, unknowns omitted).
+            # 6 yes of 8 evaluated -> floor(600/8) = 75.
+            "scores": {"background_asset": 1, "ai_central": 1, "can_influence": 1,
+                       "non_traditional_welcome": 1, "comp_200k_path": 1,
+                       "growth_path": 1, "funding_supports_comp": 0,
+                       "problems_exciting": 0},
             "total_score": 75,
             "fit_summary": "Strong fit.",
             "hard_pass": False,

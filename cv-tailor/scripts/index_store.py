@@ -39,7 +39,8 @@ def ensure_defaults() -> None:
         FAM_PATH.write_text(json.dumps({
             'roleFamilies': {
                 # Populated by onboarding — maps your career paths to role keywords
-            }, indent=2), encoding='utf-8')
+            }
+        }, indent=2), encoding='utf-8')
 
 
 def infer_kind(name: str) -> str:

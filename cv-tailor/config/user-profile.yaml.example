@@ -1,0 +1,36 @@
+# CV Tailor - User Profile template
+# Copy to cv-tailor/config/user-profile.yaml and fill in once.
+# Leave empty fields as "" or []. The real user-profile.yaml is gitignored
+# because it contains personal information; this .example stays neutral.
+
+identity:
+  summary_opener: ""        # How to open the summary. e.g. "Healthcare operations lead", "Product manager"
+  credential_label: ""      # How to label your primary credential in context.
+                            # e.g. "California RN" (not just "RN" if jurisdiction matters)
+  lead_identity: ""         # What to lead with in outreach + cover letters.
+                            # e.g. "AI builder", "healthcare operations professional"
+
+domains:
+  confirmed_asset_classes: []   # Domain/segment labels you have worked with.
+                                # Only these will be used - AI will not invent others.
+                                # e.g. ["hospital systems", "outpatient clinics", "telehealth providers"]
+
+  role_verb_map: {}             # Maps employer names to the accurate verb for your work there.
+                                # e.g.:
+                                #   Acme Corp: "implemented clinical workflows for"
+                                #   [YOUR_EMPLOYER]: "managed care operations for"
+                                # If an employer is not listed, the AI defaults to the most
+                                # conservative accurate verb for the role type.
+
+confidentiality:
+  redact_clients: true          # Default: never name engagement clients in tailored output.
+  approved_names: []            # Explicitly approved exceptions.
+                                # e.g. ["Acme Corp"] if you have permission to reference them.
+
+projects:
+  poc_disclaimer: true          # Frame AI projects as prototypes, not production systems.
+  project_role_map: {}          # Maps role type keyword to the project to surface.
+                                # e.g.:
+                                #   document_workflows: "Care Plan Review Tool"
+                                #   workflow_automation: "ClinicOps Buddy"
+                                # If a role type has no entry, all projects may be surfaced.

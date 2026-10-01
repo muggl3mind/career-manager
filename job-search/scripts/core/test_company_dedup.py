@@ -130,3 +130,101 @@ class TestMergeIntoExisting:
         new_data = {'last_checked': '2026-03-20'}
         merge_into_existing(existing, new_data)
         assert existing['last_checked'] == '2026-03-25'
+
+
+class TestNewerEvaluationWins:
+    """Finding H1: the score ratchet. Re-evaluations must be able to
+    LOWER a stale score; same-run duplicates keep higher-score dedup."""
+
+    def test_newer_eval_with_lower_score_wins(self):
+        existing = _make_row(
+            'Anthropic', llm_score='88', llm_rationale='Old great fit',
+            llm_evaluated_at='2026-05-01T00:00:00+00:00',
+        )
+        new_data = {
+            'llm_score': '60',
+            'llm_rationale': 'Cooled off',
+            'llm_evaluated_at': '2026-06-01T00:00:00+00:00',
+            'last_checked': '2026-06-01',
+        }
+        merge_into_existing(existing, new_data)
+        assert existing['llm_score'] == '60'
+        assert existing['llm_rationale'] == 'Cooled off'
+        assert existing['llm_evaluated_at'] == '2026-06-01T00:00:00+00:00'
+
+    def test_older_eval_never_clobbers_newer(self):
+        existing = _make_row(
+            'Anthropic', llm_score='60', llm_rationale='Current verdict',
+            llm_evaluated_at='2026-06-01T00:00:00+00:00',
+        )
+        new_data = {
+            'llm_score': '95',
+            'llm_rationale': 'Stale enthusiasm',
+            'llm_evaluated_at': '2026-04-01T00:00:00+00:00',
+            'last_checked': '2026-04-01',
+        }
+        merge_into_existing(existing, new_data)
+        assert existing['llm_score'] == '60'
+        assert existing['llm_rationale'] == 'Current verdict'
+
+    def test_newer_honest_zero_overwrites_stale_score(self):
+        # H2 interaction: 0 is a real score and must be able to replace 88.
+        existing = _make_row(
+            'Anthropic', llm_score='88',
+            llm_evaluated_at='2026-05-01T00:00:00+00:00',
+        )
+        new_data = {
+            'llm_score': '0',
+            'llm_rationale': 'No longer a fit',
+            'llm_evaluated_at': '2026-06-01T00:00:00+00:00',
+        }
+        merge_into_existing(existing, new_data)
+        assert existing['llm_score'] == '0'
+
+    def test_unscored_result_never_clobbers_score(self):
+        # A needs_research re-check (empty llm_score) must not erase a score.
+        existing = _make_row(
+            'Anthropic', llm_score='75', llm_rationale='Scored',
+            llm_evaluated_at='2026-05-01T00:00:00+00:00',
+        )
+        new_data = {
+            'llm_score': '',
+            'llm_rationale': 'Could not assess',
+            'llm_evaluated_at': '2026-06-01T00:00:00+00:00',
+        }
+        merge_into_existing(existing, new_data)
+        assert existing['llm_score'] == '75'
+        assert existing['llm_rationale'] == 'Scored'
+
+    def test_same_timestamp_keeps_higher_score(self):
+        # Same-run duplicates: genuine dedup semantics preserved.
+        ts = '2026-06-01T00:00:00+00:00'
+        existing = _make_row('Anthropic', llm_score='80', llm_evaluated_at=ts)
+        new_data = {'llm_score': '70', 'llm_evaluated_at': ts}
+        merge_into_existing(existing, new_data)
+        assert existing['llm_score'] == '80'
+
+        new_data = {'llm_score': '90', 'llm_evaluated_at': ts}
+        merge_into_existing(existing, new_data)
+        assert existing['llm_score'] == '90'
+
+    def test_any_score_beats_unscored_existing(self):
+        existing = _make_row('Anthropic', llm_score='')
+        new_data = {'llm_score': '40', 'llm_evaluated_at': '2026-06-01T00:00:00+00:00'}
+        merge_into_existing(existing, new_data)
+        assert existing['llm_score'] == '40'
+
+    def test_dimensions_evaluated_travels_with_winning_eval(self):
+        # Finding M9: confidence stays attached to the verdict it belongs to.
+        existing = _make_row(
+            'Anthropic', llm_score='88', llm_dimensions_evaluated='5',
+            llm_evaluated_at='2026-05-01T00:00:00+00:00',
+        )
+        new_data = {
+            'llm_score': '70',
+            'llm_dimensions_evaluated': '10',
+            'llm_evaluated_at': '2026-06-01T00:00:00+00:00',
+        }
+        merge_into_existing(existing, new_data)
+        assert existing['llm_score'] == '70'
+        assert existing['llm_dimensions_evaluated'] == '10'

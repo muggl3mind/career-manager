@@ -48,6 +48,12 @@ pipeline:
   lifecycle:
     # A company in 'watching' state for this many consecutive runs → 'archived'.
     archive_grace_runs: 2
+  # Monitor pass cadence.
+  monitor:
+    # Companies verified within the last N days are skipped on the next
+    # monitor export. Applied / interviewing / offer companies always
+    # bypass the gate. Default 7.
+    min_recheck_days: 7
 
 query_templates:
   # Optional per-user query patterns. Leave empty to use engine defaults.

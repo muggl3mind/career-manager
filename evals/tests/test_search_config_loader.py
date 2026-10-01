@@ -137,3 +137,29 @@ def test_search_locations_present(tmp_path):
     config_path.write_text(json.dumps(config))
     result = load_search_config(config_path)
     assert result["search_locations"] == ["United States", "Ireland"]
+
+
+def test_setup_required_stub_rejected(tmp_path, capsys):
+    """The shipped stub (setup_required true) is rejected even if otherwise valid,
+    and the message points the user at search-config.json.example."""
+    config = {
+        "setup_required": True,
+        "query_packs": {
+            "test_pack": {
+                "label": "Test Pack",
+                "queries": ["test query"]
+            }
+        },
+        "role_include_patterns": ["engineer"],
+        "role_exclude_patterns": ["intern"],
+        "employer_exclude_patterns": ["university"],
+        "location_exclude_patterns": [],
+        "keywords": {"domain": ["ai"], "ai": ["ai"], "tech": ["python"]},
+    }
+    config_path = tmp_path / "search-config.json"
+    config_path.write_text(json.dumps(config))
+    result = load_search_config(config_path)
+    assert result is None
+    out = capsys.readouterr().out
+    assert "setup_required" in out
+    assert "search-config.json.example" in out

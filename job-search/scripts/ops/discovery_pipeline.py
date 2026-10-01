@@ -6,9 +6,10 @@ import csv
 import json
 import re
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Callable, Dict, List, Tuple
 
 import requests
 try:
@@ -26,6 +27,7 @@ from config_loader import get as config_get
 sys.path.insert(0, str(BASE / "scripts" / "core"))
 from search_config_loader import load_search_config
 from csv_schema import HEADER
+from csv_io import write_csv_atomic
 from company_dedup import find_existing, merge_into_existing
 from path_normalizer import normalize_company
 
@@ -65,6 +67,41 @@ COUNTRY_INDEED_MAP = {
     "Hong Kong": "HKG",
 }
 
+# Baseline recruiter/agency signals every pipeline should catch regardless
+# of user config. Extending this list is the single-place fix for missed
+# staffing agencies (job posts where a recruiting firm reposts a client's
+# role and shows up as the "company"). User-provided agency_patterns are
+# added on top; this baseline is never subtracted.
+_BASELINE_AGENCY_PATTERNS = [
+    r"staffing",
+    r"recruiting",
+    r"recruitment",
+    r"recruiter",
+    r"talent (partners|search|group|solutions|network|associates|acquisition)",
+    r"talent hub",
+    r"executive search",
+    r"search (partners|group|firm)",
+    r"headhunter",
+    r"resourceful talent",
+    r"spectrum search",
+    r"epic placements",
+    r"placements",
+    r"pivotal partners",
+    r"green key",
+    r"nicholson glover",
+    r"selby jennings",
+    r"david joseph",
+    r"lawrence harvey",
+    r"robert half",
+    r"michael page",
+    r"randstad",
+    r"aerotek",
+    r"medilinkers",
+    r"people in ai",
+    r"consultants inc",
+    r"consulting group",
+]
+
 if _SEARCH_CONFIG:
     QUERY_PACKS = {k: v["queries"] for k, v in _SEARCH_CONFIG["query_packs"].items()}
     QUERY_PACK_TO_PATH = {k: v["label"] for k, v in _SEARCH_CONFIG["query_packs"].items()}
@@ -72,7 +109,8 @@ if _SEARCH_CONFIG:
     ROLE_EXCLUDE = _SEARCH_CONFIG["role_exclude_patterns"]
     BA_ALLOWED_CONTEXT = _SEARCH_CONFIG.get("role_rescue_keywords", [])
     EMPLOYER_EXCLUDE = _build_regex(_SEARCH_CONFIG.get("employer_exclude_patterns", []))
-    AGENCY_DETECT = _build_regex(_SEARCH_CONFIG.get("agency_patterns", []))
+    _user_agency = _SEARCH_CONFIG.get("agency_patterns", [])
+    AGENCY_DETECT = _build_regex(_BASELINE_AGENCY_PATTERNS + list(_user_agency))
     NON_US_PAT = _build_regex(_SEARCH_CONFIG.get("location_exclude_patterns", []))
     _kw = _SEARCH_CONFIG.get("keywords", {})
     DOMAIN_KEYWORDS = _kw.get("domain", [])
@@ -87,7 +125,7 @@ else:
     ROLE_EXCLUDE = []
     BA_ALLOWED_CONTEXT = []
     EMPLOYER_EXCLUDE = re.compile(r'(?!)')
-    AGENCY_DETECT = re.compile(r'(?!)')
+    AGENCY_DETECT = _build_regex(_BASELINE_AGENCY_PATTERNS)
     NON_US_PAT = re.compile(r'(?!)')
     DOMAIN_KEYWORDS = []
     AI_KEYWORDS = []
@@ -121,11 +159,7 @@ def norm_url(u: str) -> str:
 
 
 def write_csv(path: Path, rows: List[Dict], header: List[str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open('w', newline='', encoding='utf-8') as f:
-        w = csv.DictWriter(f, fieldnames=header)
-        w.writeheader()
-        w.writerows(rows)
+    write_csv_atomic(path, rows, header, extrasaction='raise')
 
 
 def _read_existing(path: Path) -> List[Dict]:
@@ -175,6 +209,17 @@ def gate_title(title: str, text: str) -> Tuple[bool, str]:
     return True, ''
 
 
+def location_excluded(location: str, pattern: re.Pattern | None = None) -> bool:
+    """True when the job's LOCATION FIELD matches the location-exclude list.
+
+    Scoped to the location field only (finding M1). The exclusion used to
+    run over title + description + location, so a US-remote job whose
+    description mentioned "our London office" was wrongly rejected.
+    """
+    pat = pattern if pattern is not None else NON_US_PAT
+    return bool(pat.search(location or ''))
+
+
 def check_url(url: str) -> Tuple[bool, str]:
     if not url:
         return False, 'link_missing'
@@ -191,6 +236,28 @@ def check_url(url: str) -> Tuple[bool, str]:
         except Exception:
             return False, 'link_error'
     return False, 'link_timeout'
+
+
+def check_urls(
+    urls: List[str],
+    max_workers: int = 12,
+    validator: Callable[[str], Tuple[bool, str]] | None = None,
+) -> List[Tuple[bool, str]]:
+    """Validate URLs concurrently. Results come back in input order; a
+    validator crash on one URL never affects the others."""
+    if not urls:
+        return []
+    fn = validator if validator is not None else check_url
+    results: List[Tuple[bool, str]] = [(False, 'link_error')] * len(urls)
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(urls))) as ex:
+        futures = {ex.submit(fn, u): i for i, u in enumerate(urls)}
+        for fut in as_completed(futures):
+            i = futures[fut]
+            try:
+                results[i] = fut.result()
+            except Exception:
+                results[i] = (False, 'link_error')
+    return results
 
 
 def discover(limit: int) -> List[Dict]:
@@ -214,6 +281,7 @@ def discover(limit: int) -> List[Dict]:
                         'location': loc,
                         'results_wanted': limit,
                         'hours_old': 168,
+                        'linkedin_fetch_description': True,
                     }
                     if country_code:
                         kwargs['country_indeed'] = country_code
@@ -272,9 +340,15 @@ def main() -> int:
     seen_company_title = set()
     today = datetime.now().strftime('%Y-%m-%d')
 
+    # Pre-gate rows first, then validate the surviving URLs concurrently.
+    # check_urls preserves input order, so per-row reasons land exactly as
+    # they did when check_url ran inline one URL at a time.
+    gated: List[Tuple[Dict, str | None]] = []
+    url_indices: List[int] = []
+    pending_urls: List[str] = []
     for d in discovered:
-        company, title, url, desc, source = d['company'], d['title'], d['url'], d['desc'], d['source']
-        text = f"{title} {desc} {d.get('location', '')}"
+        company, title = d['company'], d['title']
+        text = f"{title} {d['desc']} {d.get('location', '')}"
 
         # Employer exclusion gate
         if EMPLOYER_EXCLUDE.search(company):
@@ -284,17 +358,24 @@ def main() -> int:
         ok_title, title_reason = gate_title(title, text)
         if not ok_title:
             reason = title_reason
-            link_ok = False
         else:
-            location_ok = args.allow_global or (NON_US_PAT.search(text) is None)
+            location_ok = args.allow_global or not location_excluded(d.get('location', ''))
             if not location_ok:
                 reason = 'excluded_location'
-                link_ok = False
             elif PLACEHOLDER_PAT.search(title):
                 reason = 'placeholder_role'
-                link_ok = False
             else:
-                link_ok, reason = check_url(url)
+                reason = None
+                url_indices.append(len(gated))
+                pending_urls.append(d['url'])
+        gated.append((d, reason))
+
+    for idx, (_, url_reason) in zip(url_indices, check_urls(pending_urls)):
+        gated[idx] = (gated[idx][0], url_reason)
+
+    for d, reason in gated:
+        company, title, url, desc, source = d['company'], d['title'], d['url'], d['desc'], d['source']
+        text = f"{title} {desc} {d.get('location', '')}"
 
         key = (company.lower(), title.lower(), url.lower())
         key2 = (company.lower(), title.lower())
@@ -324,6 +405,7 @@ def main() -> int:
             'location_detected': d.get('location', ''),
             'validation_status': 'pass' if not reason else 'fail',
             'exclusion_reason': reason or '',
+            'description': desc,
         }
         raw_rows.append(row)
 
@@ -355,6 +437,12 @@ def main() -> int:
             return float(llm) if llm not in (None, '') else 0.0
         except (TypeError, ValueError):
             return 0.0
+
+    # description is transport-only for the eval export; it is not a CSV
+    # column. validated/scored share dict identity with raw_rows, so one
+    # strip covers every row headed for a CSV.
+    for r in raw_rows:
+        r.pop('description', None)
 
     write_csv(RAW_CSV, raw_rows, HEADER)
     if not args.dry_run:
