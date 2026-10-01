@@ -17,6 +17,8 @@ Personalize the career-manager pipeline for a new user through a focused setup.
 
 ### Step 0: Ensure Local Python Environment
 
+If `uv` is not installed, install it first (official installer: macOS/Linux `curl -LsSf https://astral.sh/uv/install.sh | sh`, Windows `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`), then make sure it is on PATH for subsequent commands. A system Python is not required — `uv` downloads a managed Python automatically when none is available.
+
 Before reading the resume or generating files, create a repo-local virtual environment if one doesn't already exist:
 
 ```bash

@@ -22,17 +22,15 @@ An AI-assisted career management system built as a set of Claude Code skills. Or
 
 ## Getting Started
 
-The simplest way to run this is the **Claude Code desktop app** — no terminal needed.
+The simplest way to run this is the **Claude Code desktop app** — no terminal needed, and the only thing you install yourself is the app.
 
-**Prerequisites:** the [Claude desktop app](https://claude.ai/download), [uv](https://docs.astral.sh/uv/getting-started/installation/), and Python 3.10+.
+1. Download the [Claude desktop app](https://claude.ai/download) and sign in
+2. Open it and switch to the **Code** tab
+3. Start a new session in the folder where you want the project (e.g. Documents), and paste this prompt:
 
-1. Install the prerequisites above
-2. Open the Claude desktop app and switch to the **Code** tab
-3. Start a new session in the folder where you want the project, and paste this prompt:
+   > Clone https://github.com/muggl3mind/career-manager.git, install any tools it needs that are missing (like uv and Python), and start onboarding.
 
-   > Clone https://github.com/muggl3mind/career-manager.git and start onboarding.
-
-Claude will handle cloning, installing dependencies, and configuring permissions automatically. The repo ships a project permission allowlist (`.claude/settings.json`), so the pipeline runs with few or no permission prompts.
+Claude takes it from there: it clones the project, installs uv and Python if your computer doesn't have them, sets up dependencies, and starts the onboarding interview. When it asks permission to run a command, click **Allow** — the repo ships a permission allowlist (`.claude/settings.json`), so there are only a few of these.
 
 <details>
 <summary><b>Prefer the terminal?</b> Claude Code CLI instructions</summary>
