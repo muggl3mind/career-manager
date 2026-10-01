@@ -46,6 +46,24 @@ cv-tailor/data/analysis.json
 # CV tailor personal profile (copy cv-tailor/config/user-profile.yaml.example)
 cv-tailor/config/user-profile.yaml
 
+# Pipeline run artifacts (generated each run; contain your search criteria and results)
+job-search/data/opportunities.csv
+job-search/data/previous-run-snapshot.json
+job-search/data/job-search-run-report-*.md
+job-search/data/pending-eval*.json
+job-search/data/eval-results*.json
+job-search/data/monitor-context*.json
+job-search/data/monitor-results*.json
+job-search/data/prospecting-context*.json
+job-search/data/prospecting-results*.json
+job-search/data/research-results.json
+
+# Local snapshots of pipeline data taken before fresh runs
+.demo-archive/
+
+# Per-user Claude Code settings (shared permissions live in .claude/settings.json)
+.claude/settings.local.json
+
 # Eval history
 evals/data/score-history.jsonl
 
