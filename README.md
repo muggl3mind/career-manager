@@ -22,20 +22,29 @@ An AI-assisted career management system built as a set of Claude Code skills. Or
 
 ## Getting Started
 
-**Prerequisites:** [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview), [uv](https://docs.astral.sh/uv/getting-started/installation/), and Python 3.10+.
+The simplest way to run this is the **Claude Code desktop app** — no terminal needed.
+
+**Prerequisites:** the [Claude desktop app](https://claude.ai/download), [uv](https://docs.astral.sh/uv/getting-started/installation/), and Python 3.10+.
 
 1. Install the prerequisites above
-2. Open Claude Code and paste this prompt:
+2. Open the Claude desktop app and switch to the **Code** tab
+3. Start a new session in the folder where you want the project, and paste this prompt:
 
    > Clone https://github.com/muggl3mind/career-manager.git and start onboarding.
 
-Claude will handle cloning, installing dependencies, and configuring permissions automatically.
+Claude will handle cloning, installing dependencies, and configuring permissions automatically. The repo ships a project permission allowlist (`.claude/settings.json`), so the pipeline runs with few or no permission prompts.
 
-**Tip:** To let the pipeline run without permission prompts, start Claude Code with:
+<details>
+<summary><b>Prefer the terminal?</b> Claude Code CLI instructions</summary>
+
+Install the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview), run `claude` in the directory where you want the project, and paste the same prompt as above.
+
+**Tip:** To let the pipeline run without any permission prompts, start Claude Code with:
 ```bash
 claude --dangerously-skip-permissions
 ```
 > **Caveat:** This bypasses *all* permission checks, not just for this pipeline. Only use this in a directory you trust and understand.
+</details>
 
 ## Onboarding
 
@@ -61,7 +70,7 @@ Onboarding is a guided interview. Here's what you do vs. what Claude does:
 
 ## How to Use
 
-Open Claude Code in this project's directory and describe what you need in plain English:
+Open the project in Claude Code (the desktop app's **Code** tab, or `claude` in a terminal) and describe what you need in plain English:
 
 | What you want | What to say |
 |---------------|-------------|
