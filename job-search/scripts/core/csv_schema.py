@@ -28,6 +28,7 @@ OPPORTUNITY_HEADER = [
     'company_lifecycle_state',
     'validation_status',
     'llm_score',
+    'llm_dimensions_evaluated',
     'role_family',
     'source',
     'source_key',

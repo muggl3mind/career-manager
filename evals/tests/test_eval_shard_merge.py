@@ -128,3 +128,46 @@ def test_apply_cleanup_removes_shard_files(tmp_path, monkeypatch):
     assert rc == 0
     assert not (tmp_path / 'eval-results-shard-1.json').exists()
     assert not (tmp_path / 'pending-eval-shard-1.json').exists()
+
+
+def test_eval_merged_into_existing_company_is_cached(tmp_path, monkeypatch):
+    """A scored posting at an already-tracked company used to be folded into
+    the company row without a seen-jobs entry: its role-level score was lost
+    and the posting was re-evaluated on every run."""
+    import apply_eval_results as aer
+    from csv_schema import HEADER
+
+    url = 'https://k.example.com/staff-fde'
+    (tmp_path / 'eval-results-shard-1.json').write_text(json.dumps([_make_eval_row(url, 90, 'KappaCo')]))
+    (tmp_path / 'pending-eval.json').write_text(json.dumps([{
+        'careers_url': url, 'title': 'Staff FDE', 'company': 'KappaCo', 'location': 'Remote',
+        'description': 'x', 'role_family': 'AI in Finance / Accounting Tech',
+        'is_agency': False, 'source': 'linkedin',
+    }]))
+    target_csv = tmp_path / 'target-companies.csv'
+    raw_csv = tmp_path / 'raw-discovery.csv'
+    existing = {k: '' for k in HEADER}
+    existing.update({'company': 'KappaCo', 'careers_url': 'https://k.example.com/other',
+                     'open_positions': 'Solutions Engineer', 'llm_score': '60',
+                     'validation_status': 'pass', 'lifecycle_state': 'active'})
+    with target_csv.open('w', newline='', encoding='utf-8') as f:
+        w = csv.DictWriter(f, fieldnames=HEADER)
+        w.writeheader()
+        w.writerow(existing)
+    _write_target(raw_csv)
+    seen_jobs = tmp_path / 'seen-jobs.json'
+
+    monkeypatch.setattr(aer, 'DATA', tmp_path)
+    monkeypatch.setattr(aer, 'TARGET_CSV', target_csv)
+    monkeypatch.setattr(aer, 'RAW_CSV', raw_csv)
+    monkeypatch.setattr(aer, 'SEEN_JOBS', seen_jobs)
+    monkeypatch.setattr(aer, 'EVAL_RESULTS', tmp_path / 'eval-results.json')
+    monkeypatch.setattr(aer, 'PENDING_EVAL', tmp_path / 'pending-eval.json')
+    monkeypatch.setattr(aer, '_sync_xlsx', lambda: None)
+
+    assert aer.cmd_apply(dry_run=False) == 0
+    entry = json.loads(seen_jobs.read_text())[url]
+    assert entry['title'] == 'Staff FDE'
+    assert entry['company'] == 'KappaCo'
+    assert entry['llm_score'] == '100'  # recomputed from the 10 yes dimensions
+    assert entry['llm_hard_pass'] == 'false'
